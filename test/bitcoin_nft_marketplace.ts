@@ -66,15 +66,6 @@ describe("BitcoinNFTMarketplace", async () => {
         bitcoinNFTMarketplaceSigner1 = await bitcoinNFTMarketplace.connect(signer1);
     });
 
-    async function moveBlocks(amount: number) {
-        for (let index = 0; index < amount; index++) {
-          await network.provider.request({
-            method: "evm_mine",
-            params: [],
-          })
-        }
-    }
-
     const deployBitcoinNFTMarketplace = async (
         _signer?: Signer
     ): Promise<BitcoinNFTMarketplace> => {
@@ -90,11 +81,11 @@ describe("BitcoinNFTMarketplace", async () => {
         return bitcoinNFTMarketplace;
     };
 
-    async function setRelayLastSubmittedHeight(blockNumber: number): Promise<void> {
+    async function setRelayLastSubmittedHeight(blockNumber: number) {
         await mockBitcoinRelay.mock.lastSubmittedHeight.returns(blockNumber);
     }
 
-    async function setRelayCheckTxProofReturn(isFinal: boolean, relayFee?: number): Promise<void> {
+    async function setRelayCheckTxProofReturn(isFinal: boolean, relayFee?: number) {
         await mockBitcoinRelay.mock.getBlockHeaderFee.returns(relayFee || 0); // Fee of relay
         await mockBitcoinRelay.mock.checkTxProof
             .returns(isFinal);
@@ -117,6 +108,24 @@ describe("BitcoinNFTMarketplace", async () => {
         )
     }
 
+    async function putBid() {
+        await bitcoinNFTMarketplaceSigner1.putBid(
+            TEST_DATA.listNFT.txId,
+            deployerAddress,
+            TEST_DATA.putBid.btcScript,
+            TEST_DATA.putBid.scriptType,
+            {value: TEST_DATA.putBid.bidAmount}
+        )
+    }
+
+    async function acceptBid(index: number) {
+        await bitcoinNFTMarketplace.acceptBid(
+            TEST_DATA.listNFT.txId,
+            index
+        )
+    }
+
+
     describe("#listNFT", async () => {
 
         beforeEach(async () => {
@@ -129,8 +138,8 @@ describe("BitcoinNFTMarketplace", async () => {
         });
 
         it("List an NFT", async function () {
-            expect(
-                await bitcoinNFTMarketplace.listNFT(
+            await expect(
+                bitcoinNFTMarketplace.listNFT(
                     TEST_DATA.listNFT.bitcoinPubKey,
                     TEST_DATA.listNFT.scriptType,
                     TEST_DATA.listNFT.r,
@@ -248,4 +257,188 @@ describe("BitcoinNFTMarketplace", async () => {
         })
 
     });
+
+    describe("#putBid", async () => {
+
+        beforeEach(async () => {
+            snapshotId = await takeSnapshot(signer1.provider);
+            // list NFT
+            await listNFT();
+        });
+
+        afterEach(async () => {
+            await revertProvider(signer1.provider, snapshotId);
+        });
+
+        it("Put a bid", async function () {
+            await expect(
+                bitcoinNFTMarketplaceSigner1.putBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    TEST_DATA.putBid.btcScript,
+                    TEST_DATA.putBid.scriptType,
+                    {value: TEST_DATA.putBid.bidAmount}
+                )
+            ).to.emit(bitcoinNFTMarketplaceSigner1, "NewBid").withArgs(
+                TEST_DATA.listNFT.txId,
+                deployerAddress,
+                signer1Address,
+                TEST_DATA.putBid.btcScript,
+                TEST_DATA.putBid.scriptType,
+                TEST_DATA.putBid.bidAmount
+            )
+        })
+
+        it("Reverts since bitcoin script is invalid", async function () {
+            expect(
+                bitcoinNFTMarketplaceSigner1.putBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    TEST_DATA.listNFT.bitcoinPubKey,
+                    TEST_DATA.putBid.scriptType,
+                    {value: TEST_DATA.putBid.bidAmount}
+                )
+            ).to.revertedWith("Marketplace: invalid script")
+        })
+
+        it("Reverts since script type is invalid", async function () {
+            expect(
+                bitcoinNFTMarketplaceSigner1.putBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    TEST_DATA.listNFT.btcScript,
+                    6,
+                    {value: TEST_DATA.putBid.bidAmount}
+                )
+            ).to.revertedWith("Marketplace: invalid script")
+        })
+
+        // TODO: test isSold = true
+
+    });
+
+    describe("#acceptBid", async () => {
+
+        beforeEach(async () => {
+            snapshotId = await takeSnapshot(signer1.provider);
+            await listNFT(); // list NFT
+            await putBid(); // put bid
+            await setRelayLastSubmittedHeight(100);
+        });
+
+        afterEach(async () => {
+            await revertProvider(signer1.provider, snapshotId);
+        });
+
+        it("Accept a bid", async function () {
+            await expect(
+                bitcoinNFTMarketplace.acceptBid(
+                    TEST_DATA.listNFT.txId,
+                    0
+                )
+            ).to.emit(bitcoinNFTMarketplace, "BidAccepted").withArgs(
+                TEST_DATA.listNFT.txId,
+                deployerAddress,
+                0,
+                100 + TRANSFER_DEADLINE
+            )
+        })
+
+        it("Reverts since bid index is invalid", async function () {
+            expect(
+                bitcoinNFTMarketplace.acceptBid(
+                    TEST_DATA.listNFT.txId,
+                    1
+                )
+            ).to.revertedWith("Marketplace: invalid idx")
+        })
+
+        it("Reverts since already acceptd another bid", async function () {
+            await putBid(); // put new bid
+            await acceptBid(0); // accept bid with index 0
+            expect(
+                bitcoinNFTMarketplace.acceptBid(
+                    TEST_DATA.listNFT.txId,
+                    1
+                )
+            ).to.revertedWith("Marketplace: already accepted")
+        })
+
+    });
+
+    describe("#revokeBid", async () => {
+
+        beforeEach(async () => {
+            snapshotId = await takeSnapshot(signer1.provider);
+            await listNFT(); // list NFT
+            await putBid(); // put bid
+            await setRelayLastSubmittedHeight(100);
+        });
+
+        afterEach(async () => {
+            await revertProvider(signer1.provider, snapshotId);
+        });
+
+        it("Revoke a bid", async function () {
+            const oldBalance = await ethers.provider.getBalance(bitcoinNFTMarketplaceSigner1.address);
+
+            await expect(
+                bitcoinNFTMarketplaceSigner1.revokeBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0
+                )
+            ).to.emit(bitcoinNFTMarketplaceSigner1, "BidRevoked").withArgs(
+                TEST_DATA.listNFT.txId,
+                deployerAddress,
+                0
+            )
+
+            const newBalance = await ethers.provider.getBalance(bitcoinNFTMarketplaceSigner1.address);
+            
+            // check contract balance after revoking
+            expect(
+                oldBalance.sub(TEST_DATA.putBid.bidAmount)
+            ).equal(newBalance, "Wrong balance")
+        })
+
+        it("Reverts since bid already revoked", async function () {
+            expect(
+                bitcoinNFTMarketplaceSigner1.revokeBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0
+                )
+            ).to.revertedWith("Marketplace: not owner")
+        })
+
+        it("Reverts since deadline for withdrawal has not passed", async function () {
+            await acceptBid(0); // accept bid with index 0
+            expect(
+                bitcoinNFTMarketplaceSigner1.revokeBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0
+                )
+            ).to.revertedWith("Marketplace: deadline not passed")
+        })
+
+        it("Revoke bid after deadline", async function () {
+            await acceptBid(0); // accept bid with index 0
+            await setRelayLastSubmittedHeight(100 + TRANSFER_DEADLINE + 1);
+            await expect(
+                bitcoinNFTMarketplaceSigner1.revokeBid(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0
+                )
+            ).to.emit(bitcoinNFTMarketplaceSigner1, "BidRevoked").withArgs(
+                TEST_DATA.listNFT.txId,
+                deployerAddress,
+                0
+            )
+        })
+
+    });
+
 });

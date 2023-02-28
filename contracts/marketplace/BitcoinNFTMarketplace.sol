@@ -139,6 +139,15 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         _bid.bidAmount = msg.value;
         bids[_txId][_seller].push(_bid);
 
+        emit NewBid(
+            _txId, 
+            _seller, 
+            _msgSender(),
+            _buyerBTCScript,
+            _scriptType,
+            msg.value
+        );
+
         return true;
     }
 
@@ -177,6 +186,8 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         // delete bid
         delete bids[_txId][_seller][_bidIdx];
 
+        emit BidRevoked(_txId, _seller, _bidIdx);
+
         return true;
     }
 
@@ -185,11 +196,20 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     /// @param _txId of the NFT
     /// @param _bidIdx Index of the bid in bids list
     function acceptBid(bytes32 _txId, uint _bidIdx) external override returns (bool) {
-        require(!nfts[_txId][_msgSender()].hasAccepted, "Marketplace: already accepted"); 
-        nfts[_txId][_msgSender()].hasAccepted = true;
+        require(!nfts[_txId][_msgSender()].hasAccepted, "Marketplace: already accepted");
+        require(bids[_txId][_msgSender()].length > _bidIdx, "Marketplace: invalid idx");  
+
         // seller has a limited time to send the NFT and provide a proof for it to get it
+        nfts[_txId][_msgSender()].hasAccepted = true;
         bids[_txId][_msgSender()][_bidIdx].isAccepted = true;
         bids[_txId][_msgSender()][_bidIdx].deadline = IBitcoinRelay(relay).lastSubmittedHeight() + transferDeadline;
+
+        emit BidAccepted(
+            _txId, 
+            _msgSender(),
+            _bidIdx, 
+            bids[_txId][_msgSender()][_bidIdx].deadline
+        );
 
         return true;
     }

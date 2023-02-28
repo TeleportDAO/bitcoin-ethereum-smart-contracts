@@ -91,4 +91,5 @@
 		"add_chainlink_to_price_oracle:mumbai": "NODE_ENV=mumbai hardhat deploy --network mumbai --export export/abi/mumbai.json --deploy-scripts scripts/add-price-proxy-to-oracle",
 		"test": "hardhat test"
 	}
+	
 }

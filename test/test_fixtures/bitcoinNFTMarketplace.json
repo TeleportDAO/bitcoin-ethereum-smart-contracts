@@ -13,5 +13,10 @@
 		"outputIdx": 1,
 		"satoshiIdx": 1,
 		"txId": "0x5c81d4e17eba43d947923d29f0bf9653a33f58b450a03ddcddd16ec663de1908"
+	},
+	"putBid": {
+		"btcScript": "0x12ab8dc588ca9d5787dde7eb29569da63c3a238c",
+		"scriptType": 1,
+		"bidAmount": 100
 	}
 }
