@@ -218,6 +218,18 @@ library BitcoinHelper {
     /// @notice                   Finds total outputs value
     /// @dev                      Reverts if vout is null
     /// @param _vout              The vout of a Bitcoin transaction
+    /// @return _value            Total vout value
+    function parseOutputValue(bytes memory _vout, uint _index) internal pure returns (uint64 _value) {
+        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
+        require(!voutView.isNull(), "BitcoinHelper: vout is null");
+        bytes29 output;
+        output = indexVout(voutView, _index);
+        _value = value(output);
+    }
+
+    /// @notice                   Finds total outputs value
+    /// @dev                      Reverts if vout is null
+    /// @param _vout              The vout of a Bitcoin transaction
     /// @return _totalValue       Total vout value
     function parseOutputsTotalValue(bytes memory _vout) internal pure returns (uint64 _totalValue) {
         bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
