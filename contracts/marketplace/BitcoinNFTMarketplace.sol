@@ -7,6 +7,7 @@ import "../libraries/BitcoinHelper.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "hardhat/console.sol";
 
 contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGuard {
 
@@ -63,6 +64,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         uint _outputIdx,
 		uint _satoshiIdx
 	) external override returns (bool) {
+        require(_bitcoinPubKey.length == 64, "invalid pub key");
         bytes32 txId = BitcoinHelper.calculateTxId(_tx.version, _tx.vin, _tx.vout, _tx.locktime);
         
         // extract locking script from the output that includes the NTF
@@ -71,32 +73,32 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         if (_scriptType == ScriptTypes.P2WPKH) { // locking script = ZERO (1 byte) PUB_KEY_HASH (20 bytes)
             require(
                 _compareBytes(
-                    _sliceBytes(lockingScript, 2, 41), _doubleHash(abi.encodePacked(FOUR, _bitcoinPubKey))
+                    _sliceBytes(lockingScript, 1, 40), _doubleHash(abi.encodePacked(FOUR, _bitcoinPubKey))
                 ),
                 "Marketplace: wrong pub key"
             );
         } else if (_scriptType == ScriptTypes.P2PKH) { // locking script = OP_DUP (1 byte) OP_HASH160 (2 bytes) PUB_KEY_HASH (20 bytes)  OP_EQUALVERIFY OP_CHECKSIG
             require(
                 _compareBytes(
-                    _sliceBytes(lockingScript, 6, 45), _doubleHash(abi.encodePacked(FOUR, _bitcoinPubKey))
+                    _sliceBytes(lockingScript, 3, 22), _doubleHash(abi.encodePacked(FOUR, _bitcoinPubKey))
                 ),
                 "Marketplace: wrong pub key"
             );
         } else if (_scriptType == ScriptTypes.P2PK) { // locking script = PUB_KEY (65 bytes) OP_CHECKSIG
             require(
                 _compareBytes(
-                    _sliceBytes(lockingScript, 0, 129), abi.encodePacked(FOUR, _bitcoinPubKey)
+                    _sliceBytes(lockingScript, 0, 64), abi.encodePacked(FOUR, _bitcoinPubKey)
                 ),
                 "Marketplace: wrong pub key"
             );
         } else {
-            revert("Marketplace: wrong type");
+            revert("Marketplace: invalid type");
         }
 
         // check that the signature for txId is valid
         // etherum address = last 20 bytes of hash(pubkey)
         require(
-            _bytesToAddress(_sliceBytes(abi.encodePacked(keccak256(_bitcoinPubKey)), 24, 63)) == 
+            _bytesToAddress(_sliceBytes(abi.encodePacked(keccak256(_bitcoinPubKey)), 12, 31)) == 
                 ecrecover(txId, _v, _r, _s),
             "Marketplace: not nft owner"
         );
@@ -106,7 +108,9 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         _nft.outputIdx = _outputIdx;
         _nft.satoshiIdx = _satoshiIdx;
         nfts[txId][_msgSender()] = _nft;
-        
+
+        emit NFTListed(txId, _outputIdx, _satoshiIdx, _msgSender());
+
         return true;
     }
 

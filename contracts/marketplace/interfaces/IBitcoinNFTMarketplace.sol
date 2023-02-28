@@ -49,6 +49,8 @@ interface IBitcoinNFTMarketplace {
 
   	// Events
 
+    event NFTListed(bytes32 txId, uint outputIdx, uint satoshiIdx, address seller);
+
 	// Read-only functions
 
     function transferDeadline() external view returns (uint);
