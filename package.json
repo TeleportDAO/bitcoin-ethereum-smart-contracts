@@ -48,6 +48,8 @@
 		"@openzeppelin/contracts-upgradeable": "^4.7.3",
 		"@openzeppelin/hardhat-upgrades": "1.12.0",
 		"@remix-project/remixd": "^0.6.5",
+		"@teleportdao/bitcoin": "^1.0.3",
+		"@teleportdao/providers": "^1.0.3",
 		"@uniswap/v2-core": "^1.0.1",
 		"base58check": "^2.0.0",
 		"bech32-buffer": "^0.2.0",
@@ -91,5 +93,4 @@
 		"add_chainlink_to_price_oracle:mumbai": "NODE_ENV=mumbai hardhat deploy --network mumbai --export export/abi/mumbai.json --deploy-scripts scripts/add-price-proxy-to-oracle",
 		"test": "hardhat test"
 	}
-	
 }

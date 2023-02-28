@@ -91,7 +91,7 @@ describe("BitcoinNFTMarketplace", async () => {
             .returns(isFinal);
     }
 
-    async function listNFT() {
+    async function listNFT(satoshiIdx = TEST_DATA.listNFT.satoshiIdx) {
         await bitcoinNFTMarketplace.listNFT(
             TEST_DATA.listNFT.bitcoinPubKey,
             TEST_DATA.listNFT.scriptType,
@@ -104,15 +104,15 @@ describe("BitcoinNFTMarketplace", async () => {
                 locktime: TEST_DATA.listNFT.locktime
             },
             TEST_DATA.listNFT.outputIdx,
-            TEST_DATA.listNFT.satoshiIdx
+            satoshiIdx
         )
     }
 
-    async function putBid() {
+    async function putBid(btcScript = TEST_DATA.putBid.btcScript) {
         await bitcoinNFTMarketplaceSigner1.putBid(
             TEST_DATA.listNFT.txId,
             deployerAddress,
-            TEST_DATA.putBid.btcScript,
+            btcScript,
             TEST_DATA.putBid.scriptType,
             {value: TEST_DATA.putBid.bidAmount}
         )
@@ -145,7 +145,8 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.r,
                     TEST_DATA.listNFT.s,
                     TEST_DATA.listNFT.v,
-                    {   version: TEST_DATA.listNFT.version,
+                    {   
+                        version: TEST_DATA.listNFT.version,
                         vin: TEST_DATA.listNFT.vin,
                         vout: TEST_DATA.listNFT.vout,
                         locktime: TEST_DATA.listNFT.locktime
@@ -437,6 +438,183 @@ describe("BitcoinNFTMarketplace", async () => {
                 deployerAddress,
                 0
             )
+        })
+
+    });
+
+    describe("#sellNFT", async () => {
+
+        beforeEach(async () => {
+            snapshotId = await takeSnapshot(signer1.provider);
+            await listNFT();
+            await putBid();
+            await setRelayLastSubmittedHeight(100);
+            await acceptBid(0);
+            await setRelayCheckTxProofReturn(true, 0); // mock checkTxProof
+        });
+
+        afterEach(async () => {
+            await revertProvider(signer1.provider, snapshotId);
+        });
+
+        it("Sell NFT", async function () {
+            const oldBalance = await ethers.provider.getBalance(bitcoinNFTMarketplace.address);
+
+            await expect(
+                await bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0,
+                    {   
+                        version: TEST_DATA.sellNFT.transferTxVersion,
+                        vin: TEST_DATA.sellNFT.transferTxVin,
+                        vout: TEST_DATA.sellNFT.transferTxVout,
+                        locktime: TEST_DATA.sellNFT.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFT.outputNFTIdx,
+                    TEST_DATA.sellNFT.blockNumber,
+                    TEST_DATA.sellNFT.intermediateNodes,
+                    TEST_DATA.sellNFT.index,
+                    [
+                        {  
+                            version: TEST_DATA.sellNFT.inputTxVersion,
+                            vin: TEST_DATA.sellNFT.inputTxVin,
+                            vout: TEST_DATA.sellNFT.inputTxVout,
+                            locktime: TEST_DATA.sellNFT.inputTxLocktime
+                        }
+                    ]
+                )
+            ).to.emit(bitcoinNFTMarketplace, "NFTSold").withArgs(
+                TEST_DATA.listNFT.txId,
+                deployerAddress,
+                0,
+                TEST_DATA.sellNFT.transferTxId,
+                TEST_DATA.sellNFT.outputNFTIdx,
+                TEST_DATA.sellNFT.firstInputValue + TEST_DATA.listNFT.satoshiIdx
+            )
+
+            const newBalance = await ethers.provider.getBalance(bitcoinNFTMarketplace.address);
+
+            // check contract balance after selling NFT
+            expect(
+                oldBalance.sub(TEST_DATA.putBid.bidAmount)
+            ).equal(newBalance, "Wrong balance")
+        })
+
+        it("Reverts since input tx is invalid", async function () {
+
+            expect(
+                bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0,
+                    {   
+                        version: TEST_DATA.sellNFT.transferTxVersion,
+                        vin: TEST_DATA.sellNFT.transferTxVin,
+                        vout: TEST_DATA.sellNFT.transferTxVout,
+                        locktime: TEST_DATA.sellNFT.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFT.outputNFTIdx,
+                    TEST_DATA.sellNFT.blockNumber,
+                    TEST_DATA.sellNFT.intermediateNodes,
+                    TEST_DATA.sellNFT.index,
+                    [
+                        {  
+                            version: TEST_DATA.invalidInputTx.inputTxVersion,
+                            vin: TEST_DATA.invalidInputTx.inputTxVin,
+                            vout: TEST_DATA.invalidInputTx.inputTxVout,
+                            locktime: TEST_DATA.invalidInputTx.inputTxLocktime
+                        }
+                    ]
+                )
+            ).to.revertedWith("Marketplace: outpoint != input tx")
+        })
+
+        it("Reverts since nft tx doesn't exist", async function () {
+
+            expect(
+                bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0,
+                    {   
+                        version: TEST_DATA.invalidTransferTx.transferTxVersion,
+                        vin: TEST_DATA.invalidTransferTx.transferTxVin,
+                        vout: TEST_DATA.invalidTransferTx.transferTxVout,
+                        locktime: TEST_DATA.invalidTransferTx.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFT.outputNFTIdx,
+                    TEST_DATA.sellNFT.blockNumber,
+                    TEST_DATA.sellNFT.intermediateNodes,
+                    TEST_DATA.sellNFT.index,
+                    [
+                        {  
+                            version: TEST_DATA.invalidInputTx.inputTxVersion,
+                            vin: TEST_DATA.invalidInputTx.inputTxVin,
+                            vout: TEST_DATA.invalidInputTx.inputTxVout,
+                            locktime: TEST_DATA.invalidInputTx.inputTxLocktime
+                        }
+                    ]
+                )
+            ).to.revertedWith("Marketplace: outpoint != input tx")
+        })
+
+        it("Reverts since nft not transffered", async function () {
+            await listNFT(1); // list with new satoshi index
+            expect(
+                bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0,
+                    {   
+                        version: TEST_DATA.sellNFT.transferTxVersion,
+                        vin: TEST_DATA.sellNFT.transferTxVin,
+                        vout: TEST_DATA.sellNFT.transferTxVout,
+                        locktime: TEST_DATA.sellNFT.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFT.outputNFTIdx,
+                    TEST_DATA.sellNFT.blockNumber,
+                    TEST_DATA.sellNFT.intermediateNodes,
+                    TEST_DATA.sellNFT.index,
+                    [
+                        {  
+                            version: TEST_DATA.sellNFT.inputTxVersion,
+                            vin: TEST_DATA.sellNFT.inputTxVin,
+                            vout: TEST_DATA.sellNFT.inputTxVout,
+                            locktime: TEST_DATA.sellNFT.inputTxLocktime
+                        }
+                    ]
+                )
+            ).to.revertedWith("Marketplace: not transffered")
+        })
+
+        it("Reverts since nft transffered to another user", async function () {
+            await putBid(TEST_DATA.putBid.anotherBtcScript);
+            expect(
+                bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    1,
+                    {   
+                        version: TEST_DATA.sellNFT.transferTxVersion,
+                        vin: TEST_DATA.sellNFT.transferTxVin,
+                        vout: TEST_DATA.sellNFT.transferTxVout,
+                        locktime: TEST_DATA.sellNFT.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFT.outputNFTIdx,
+                    TEST_DATA.sellNFT.blockNumber,
+                    TEST_DATA.sellNFT.intermediateNodes,
+                    TEST_DATA.sellNFT.index,
+                    [
+                        {  
+                            version: TEST_DATA.sellNFT.inputTxVersion,
+                            vin: TEST_DATA.sellNFT.inputTxVin,
+                            vout: TEST_DATA.sellNFT.inputTxVout,
+                            locktime: TEST_DATA.sellNFT.inputTxLocktime
+                        }
+                    ]
+                )
+            ).to.revertedWith("Marketplace: not transffered")
         })
 
     });

@@ -236,13 +236,14 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         Tx[] memory _inputTxs
     ) external override returns (bool) {
         // check inclusion of transfer tx
-        _isConfirmed(
-            BitcoinHelper.calculateTxId(
+        bytes32 transferTxId = BitcoinHelper.calculateTxId(
                 _transferTx.version, 
                 _transferTx.vin, 
                 _transferTx.vout, 
                 _transferTx.locktime
-            ),
+        );
+        _isConfirmed(
+            transferTxId,
             _blockNumber,
             _intermediateNodes,
             _index
@@ -257,6 +258,8 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
 
         // send ETH to seller
         Address.sendValue(payable(_seller), bids[_txId][_seller][_bidIdx].bidAmount);
+ 
+        emit NFTSold(_txId, _seller, _bidIdx, transferTxId, _outputNFTIdx, nftIdx);
 
         return true;
     }
@@ -308,7 +311,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
 
         (_outpointId, _outpointIndex) = BitcoinHelper.extractOutpoint(
             _vin,
-            _inputTxs.length + 1 // this is the input that spent the NFT
+            _inputTxs.length // this is the input that spent the NFT
         );
 
         // Checks that "outpoint tx id == _txId"

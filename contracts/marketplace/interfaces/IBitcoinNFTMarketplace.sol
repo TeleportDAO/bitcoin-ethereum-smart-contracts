@@ -49,7 +49,12 @@ interface IBitcoinNFTMarketplace {
 
   	// Events
 
-    event NFTListed(bytes32 txId, uint outputIdx, uint satoshiIdx, address seller);
+    event NFTListed(
+        bytes32 txId, 
+        uint outputIdx, 
+        uint satoshiIdx, 
+        address seller
+    );
 
     event NewBid(
         bytes32 txId, 
@@ -71,6 +76,15 @@ interface IBitcoinNFTMarketplace {
         bytes32 txId,
         address seller, 
         uint bidIdx
+    );
+
+    event NFTSold(
+        bytes32 txId,
+        address seller, 
+        uint bidIdx,
+        bytes32 newTxId,
+        uint newOutputIdx,
+        uint newSatoshiIdx
     );
 
 	// Read-only functions
