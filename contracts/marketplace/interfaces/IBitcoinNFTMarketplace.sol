@@ -84,7 +84,8 @@ interface IBitcoinNFTMarketplace {
         uint bidIdx,
         bytes32 newTxId,
         uint newOutputIdx,
-        uint newSatoshiIdx
+        uint newSatoshiIdx,
+        uint fee
     );
 
 	// Read-only functions
@@ -93,11 +94,19 @@ interface IBitcoinNFTMarketplace {
 	
 	function relay() external view returns (address);
 
+    function protocolFee() external view returns (uint);
+
+    function treasury() external view returns (address);
+
 	// State-changing functions
 
     function setRelay(address _relay) external;
     
     function setTransferDeadline(uint _transferDeadline) external;
+
+    function setProtocolFee(uint _protocolFee) external;
+
+    function setTreasury(address _treasury) external;
 
 	function listNFT(
         bytes memory _bitcoinPubKey,

@@ -12,36 +12,59 @@ import "hardhat/console.sol";
 contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGuard {
 
     modifier nonZeroAddress(address _address) {
-        require(_address != address(0), "CCBurnRouter: address is zero");
+        require(_address != address(0), "BitcoinNFTMarketplace: address is zero");
         _;
     }
 
-    constructor(address _relay, uint _transferDeadline) {
+    constructor(
+        address _relay, 
+        uint _transferDeadline, 
+        uint _protocolFee,
+        address _treasury
+    ) {
         setRelay(_relay);
         setTransferDeadline(_transferDeadline);
+        setProtocolFee(_protocolFee);
+        setTreasury(_treasury);
     }
 
     address public override relay;
     uint public override transferDeadline;
+    uint public override protocolFee;
+    address public override treasury;
     bytes1 constant private FOUR = 0x04;
+    uint constant public MAX_PROTOCOL_FEE = 10000; // 10000 = %100
     
     mapping(bytes32 => mapping(address => NFT)) public nfts; // mapping from [txId][seller] to listed NFT
     mapping(bytes32 => mapping(address => Bid[])) public bids; // mapping from [txId][seller] to listed NFT (note: it wasn't possible to define Bid[] in NFT)
 
-    /// @notice Internal setter for relay contract address
+    /// @notice Setter for relay contract address
     /// @param _relay The new relay contract address
     function setRelay(address _relay) public override nonZeroAddress(_relay) {
         relay = _relay;
     }
 
-    /// @notice Internal setter for deadline of sending NFT
+    /// @notice Setter for treasury address
+    /// @param _treasury The new treasury address
+    function setTreasury(address _treasury) public override nonZeroAddress(_treasury) {
+        treasury = _treasury;
+    }
+
+    /// @notice Setter for deadline of sending NFT
     /// @dev Deadline should be greater than relay finalization parameter
     /// @param _transferDeadline The new transfer deadline
     function setTransferDeadline(uint _transferDeadline) public override {
         uint _finalizationParameter = IBitcoinRelay(relay).finalizationParameter();
         // gives seller enough time to send nft
-        require(_transferDeadline > _finalizationParameter * 2, "Marketplace: low deadline");
+        require(_transferDeadline > _finalizationParameter * 2, "BitcoinNFTMarketplace: low deadline");
         transferDeadline = _transferDeadline;
+    }
+
+    /// @notice Setter for protocol fee
+    /// @param _protocolFee The new protocol fee
+    function setProtocolFee(uint _protocolFee) public override {
+        require(MAX_PROTOCOL_FEE >= _protocolFee, "BitcoinNFTMarketplace: invalid fee");
+        protocolFee = _protocolFee;
     }
     
     /// @notice Lists NFT of a user
@@ -75,24 +98,24 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
                 _compareBytes(
                     _sliceBytes(lockingScript, 1, 40), _doubleHash(abi.encodePacked(FOUR, _bitcoinPubKey))
                 ),
-                "Marketplace: wrong pub key"
+                "BitcoinNFTMarketplace: wrong pub key"
             );
         } else if (_scriptType == ScriptTypes.P2PKH) { // locking script = OP_DUP (1 byte) OP_HASH160 (2 bytes) PUB_KEY_HASH (20 bytes)  OP_EQUALVERIFY OP_CHECKSIG
             require(
                 _compareBytes(
                     _sliceBytes(lockingScript, 3, 22), _doubleHash(abi.encodePacked(FOUR, _bitcoinPubKey))
                 ),
-                "Marketplace: wrong pub key"
+                "BitcoinNFTMarketplace: wrong pub key"
             );
         } else if (_scriptType == ScriptTypes.P2PK) { // locking script = PUB_KEY (65 bytes) OP_CHECKSIG
             require(
                 _compareBytes(
                     _sliceBytes(lockingScript, 0, 64), abi.encodePacked(FOUR, _bitcoinPubKey)
                 ),
-                "Marketplace: wrong pub key"
+                "BitcoinNFTMarketplace: wrong pub key"
             );
         } else {
-            revert("Marketplace: invalid type");
+            revert("BitcoinNFTMarketplace: invalid type");
         }
 
         // check that the signature for txId is valid
@@ -100,7 +123,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         require(
             _bytesToAddress(_sliceBytes(abi.encodePacked(keccak256(_bitcoinPubKey)), 12, 31)) == 
                 ecrecover(txId, _v, _r, _s),
-            "Marketplace: not nft owner"
+            "BitcoinNFTMarketplace: not nft owner"
         );
 
         // store NFT
@@ -127,7 +150,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         bytes memory _buyerBTCScript,
         ScriptTypes _scriptType
     ) external payable override returns (bool) {
-        require(!nfts[_txId][_seller].isSold, "Marketplace: sold nft");
+        require(!nfts[_txId][_seller].isSold, "BitcoinNFTMarketplace: sold nft");
         // check that the script is valid 
         _checkScriptType(_buyerBTCScript, _scriptType);
 
@@ -165,16 +188,16 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     ) external override returns (bool) {
         require(
             bids[_txId][_seller][_bidIdx].buyerETHAddress == _msgSender(),
-            "Marketplace: not owner"
+            "BitcoinNFTMarketplace: not owner"
         );
 
         // handle the case where the seller accepted a bid but didn't transfer NFT to the buyer before the deadline
         if (bids[_txId][_seller][_bidIdx].isAccepted) {
             // check that deadline is passed but nft hasn't been transffered
-            require(!nfts[_txId][_seller].isSold, "Marketplace: nft sold");
+            require(!nfts[_txId][_seller].isSold, "BitcoinNFTMarketplace: nft sold");
             require(
                 IBitcoinRelay(relay).lastSubmittedHeight() > bids[_txId][_seller][_bidIdx].deadline,
-                "Marketplace: deadline not passed"
+                "BitcoinNFTMarketplace: deadline not passed"
             );
             // change the status of the NFT (so seller can accept a new bid)
             nfts[_txId][_seller].hasAccepted = false;
@@ -196,8 +219,8 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     /// @param _txId of the NFT
     /// @param _bidIdx Index of the bid in bids list
     function acceptBid(bytes32 _txId, uint _bidIdx) external override returns (bool) {
-        require(!nfts[_txId][_msgSender()].hasAccepted, "Marketplace: already accepted");
-        require(bids[_txId][_msgSender()].length > _bidIdx, "Marketplace: invalid idx");  
+        require(!nfts[_txId][_msgSender()].hasAccepted, "BitcoinNFTMarketplace: already accepted");
+        require(bids[_txId][_msgSender()].length > _bidIdx, "BitcoinNFTMarketplace: invalid idx");  
 
         // seller has a limited time to send the NFT and provide a proof for it to get it
         nfts[_txId][_msgSender()].hasAccepted = true;
@@ -253,22 +276,27 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         uint nftIdx;
         nftIdx = _nftIdx(_txId, _seller,  _transferTx.vin, _inputTxs);
 
-        // check that weather the NFT is transferred to the expected buyer or not
-        _checkNFTTransfer(_txId, _seller, _bidIdx, _transferTx.vout, _outputNFTIdx, nftIdx);
-
-        // send ETH to seller
-        Address.sendValue(payable(_seller), bids[_txId][_seller][_bidIdx].bidAmount);
+        // check that weather the NFT is transferred to the expected buyer or not and send funds
+        uint fee = _checkNFTTransferAndSendFunds(_txId, _seller, _bidIdx, _transferTx.vout, _outputNFTIdx, nftIdx);
  
-        emit NFTSold(_txId, _seller, _bidIdx, transferTxId, _outputNFTIdx, nftIdx);
+        emit NFTSold(
+            _txId, 
+            _seller, 
+            _bidIdx, 
+            transferTxId, 
+            _outputNFTIdx, 
+            nftIdx, 
+            fee
+        );
 
         return true;
     }
 
     function _checkScriptType(bytes memory _script, ScriptTypes _scriptType) private pure {
         if (_scriptType == ScriptTypes.P2PK || _scriptType == ScriptTypes.P2WSH) {
-            require(_script.length == 32, "Marketplace: invalid script");
+            require(_script.length == 32, "BitcoinNFTMarketplace: invalid script");
         } else {
-            require(_script.length == 20, "Marketplace: invalid script");
+            require(_script.length == 20, "BitcoinNFTMarketplace: invalid script");
         }
     }
 
@@ -302,7 +330,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
                     _inputTxs[i].vout, 
                     _inputTxs[i].locktime
                 ),
-                "Marketplace: outpoint != input tx"
+                "BitcoinNFTMarketplace: outpoint != input tx"
             );
 
             // sum of all inputs of transfer tx before the input that spent NFT
@@ -317,7 +345,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         // Checks that "outpoint tx id == _txId"
         require(
             (_outpointId == _txId) && (_outpointIndex == nfts[_txId][_seller].outputIdx),
-            "Marketplace: outpoint not match with _txId"
+            "BitcoinNFTMarketplace: outpoint not match with _txId"
         );
 
         // find the positon of NFT satoshi in input of transfer tx
@@ -331,14 +359,14 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     /// @param _vout output of transaction that transffred NFT from seller to buyer
     /// @param _outputNFTIdx Index of output that includes NFT
     /// @param _nftIdxInput Index of satoshi NFT in input of tx
-    function _checkNFTTransfer(
+    function _checkNFTTransferAndSendFunds(
         bytes32 _txId,
         address _seller,
         uint _bidIdx,
         bytes memory _vout,
         uint _outputNFTIdx,
         uint _nftIdxInput
-    ) internal {
+    ) internal returns (uint _fee) {
         // find number of satoshis before the output that includes the NFT
         uint outputValue;
         for (uint i = 0; i < _outputNFTIdx; i++) {
@@ -353,10 +381,17 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
                 bids[_txId][_seller][_bidIdx].buyerBTCScript,
                 bids[_txId][_seller][_bidIdx].buyerScriptType
             ),
-            "Marketplace: not transffered"
+            "BitcoinNFTMarketplace: not transffered"
         );
 
         nfts[_txId][_seller].isSold = true;
+
+        // send ETH to seller and fee to treasury
+        _fee = protocolFee * bids[_txId][_seller][_bidIdx].bidAmount / MAX_PROTOCOL_FEE;
+        Address.sendValue(payable(_seller), bids[_txId][_seller][_bidIdx].bidAmount - _fee);
+        if (_fee > 0) {
+            Address.sendValue(payable(treasury), _fee);
+        }
     }
 
     /// @notice Checks inclusion of the transaction in the specified block
@@ -374,7 +409,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     ) private returns (bool) {
         // Finds fee amount
         uint feeAmount = IBitcoinRelay(relay).getBlockHeaderFee(_blockNumber, 0);
-        require(msg.value >= feeAmount, "Marketplace: relay fee is not sufficient");
+        require(msg.value >= feeAmount, "BitcoinNFTMarketplace: relay fee is not sufficient");
 
         // Calls relay contract
         bytes memory data = Address.functionCallWithValue(

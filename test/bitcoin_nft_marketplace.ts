@@ -7,7 +7,6 @@ import { Address } from "hardhat-deploy/types";
 import {BitcoinNFTMarketplace} from "../src/types/BitcoinNFTMarketplace";
 import {BitcoinNFTMarketplace__factory} from "../src/types/factories/BitcoinNFTMarketplace__factory";
 import { takeSnapshot, revertProvider } from "./block_utils";
-import { network } from "hardhat"
 
 describe("BitcoinNFTMarketplace", async () => {
     let snapshotId: any;
@@ -26,19 +25,9 @@ describe("BitcoinNFTMarketplace", async () => {
     let mockBitcoinRelay: MockContract;
 
     // Constants
-    let ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-    let ONE_ADDRESS = "0x0000000000000000000000000000000000000011";
-    let oneHundred = BigNumber.from(10).pow(8).mul(100)
     let TRANSFER_DEADLINE = 20
 
-    let btcPublicKey = "0x03789ed0bb717d88f7d321a368d905e7430207ebbd82bd342cf11ae157a7ace5fd"
-    let btcAddress = "mmPPsxXdtqgHFrxZdtFCtkwhHynGTiTsVh"
-
-    let USER_SCRIPT_P2PKH = "0x12ab8dc588ca9d5787dde7eb29569da63c3a238c";
-    let USER_SCRIPT_P2PKH_TYPE = 1; // P2PKH
-
-    let USER_SCRIPT_P2WPKH = "0x751e76e8199196d454941c45d1b3a323f1433bd6";
-    let USER_SCRIPT_P2WPKH_TYPE = 3; // P2WPKH
+    // let btcPublicKey = "0x03789ed0bb717d88f7d321a368d905e7430207ebbd82bd342cf11ae157a7ace5fd"
 
     before(async () => {
 
@@ -47,7 +36,7 @@ describe("BitcoinNFTMarketplace", async () => {
         deployerAddress = await deployer.getAddress();
 
         // Mocks contracts
-    
+
         const bitcoinRelay = await deployments.getArtifact(
             "IBitcoinRelay"
         );
@@ -75,7 +64,9 @@ describe("BitcoinNFTMarketplace", async () => {
 
         const bitcoinNFTMarketplace = await bitcoinNFTMarketplaceFactory.deploy(
             mockBitcoinRelay.address,
-            TRANSFER_DEADLINE
+            TRANSFER_DEADLINE,
+            0,
+            deployerAddress
         );
 
         return bitcoinNFTMarketplace;
@@ -178,13 +169,13 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.outputIdx,
                     TEST_DATA.listNFT.satoshiIdx
                 )
-            ).to.revertedWith("Marketplace: invalid pub key")
+            ).to.revertedWith("BitcoinNFTMarketplace: invalid pub key")
         })
 
         it("Reverts since public key is wrong", async function () {
             expect(
                 bitcoinNFTMarketplace.listNFT(
-                    btcPublicKey,
+                    "0x1111",
                     TEST_DATA.listNFT.scriptType,
                     TEST_DATA.listNFT.r,
                     TEST_DATA.listNFT.s,
@@ -197,7 +188,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.outputIdx,
                     TEST_DATA.listNFT.satoshiIdx
                 )
-            ).to.revertedWith("Marketplace: wrong pub key")
+            ).to.revertedWith("BitcoinNFTMarketplace: wrong pub key")
         })
 
         it("Reverts since script type is wrong", async function () {
@@ -216,7 +207,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.outputIdx,
                     TEST_DATA.listNFT.satoshiIdx
                 )
-            ).to.revertedWith("Marketplace: wrong pub key")
+            ).to.revertedWith("BitcoinNFTMarketplace: wrong pub key")
         })
 
         it("Reverts since script type is invalid", async function () {
@@ -235,7 +226,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.outputIdx,
                     TEST_DATA.listNFT.satoshiIdx
                 )
-            ).to.revertedWith("Marketplace: invalid type")
+            ).to.revertedWith("BitcoinNFTMarketplace: invalid type")
         })
 
         it("Reverts since signature is wrong", async function () {
@@ -254,7 +245,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.outputIdx,
                     TEST_DATA.listNFT.satoshiIdx
                 )
-            ).to.revertedWith("Marketplace: not nft owner")
+            ).to.revertedWith("BitcoinNFTMarketplace: not nft owner")
         })
 
     });
@@ -299,7 +290,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.putBid.scriptType,
                     {value: TEST_DATA.putBid.bidAmount}
                 )
-            ).to.revertedWith("Marketplace: invalid script")
+            ).to.revertedWith("BitcoinNFTMarketplace: invalid script")
         })
 
         it("Reverts since script type is invalid", async function () {
@@ -311,7 +302,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     6,
                     {value: TEST_DATA.putBid.bidAmount}
                 )
-            ).to.revertedWith("Marketplace: invalid script")
+            ).to.revertedWith("BitcoinNFTMarketplace: invalid script")
         })
 
         // TODO: test isSold = true
@@ -351,7 +342,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.txId,
                     1
                 )
-            ).to.revertedWith("Marketplace: invalid idx")
+            ).to.revertedWith("BitcoinNFTMarketplace: invalid idx")
         })
 
         it("Reverts since already acceptd another bid", async function () {
@@ -362,7 +353,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     TEST_DATA.listNFT.txId,
                     1
                 )
-            ).to.revertedWith("Marketplace: already accepted")
+            ).to.revertedWith("BitcoinNFTMarketplace: already accepted")
         })
 
     });
@@ -410,7 +401,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     deployerAddress,
                     0
                 )
-            ).to.revertedWith("Marketplace: not owner")
+            ).to.revertedWith("BitcoinNFTMarketplace: not owner")
         })
 
         it("Reverts since deadline for withdrawal has not passed", async function () {
@@ -421,7 +412,7 @@ describe("BitcoinNFTMarketplace", async () => {
                     deployerAddress,
                     0
                 )
-            ).to.revertedWith("Marketplace: deadline not passed")
+            ).to.revertedWith("BitcoinNFTMarketplace: deadline not passed")
         })
 
         it("Revoke bid after deadline", async function () {
@@ -490,7 +481,8 @@ describe("BitcoinNFTMarketplace", async () => {
                 0,
                 TEST_DATA.sellNFT.transferTxId,
                 TEST_DATA.sellNFT.outputNFTIdx,
-                TEST_DATA.sellNFT.firstInputValue + TEST_DATA.listNFT.satoshiIdx
+                TEST_DATA.sellNFT.firstInputValue + TEST_DATA.listNFT.satoshiIdx,
+                0
             )
 
             const newBalance = await ethers.provider.getBalance(bitcoinNFTMarketplace.address);
@@ -527,7 +519,7 @@ describe("BitcoinNFTMarketplace", async () => {
                         }
                     ]
                 )
-            ).to.revertedWith("Marketplace: outpoint != input tx")
+            ).to.revertedWith("BitcoinNFTMarketplace: outpoint != input tx")
         })
 
         it("Reverts since nft tx doesn't exist", async function () {
@@ -556,7 +548,7 @@ describe("BitcoinNFTMarketplace", async () => {
                         }
                     ]
                 )
-            ).to.revertedWith("Marketplace: outpoint != input tx")
+            ).to.revertedWith("BitcoinNFTMarketplace: outpoint != input tx")
         })
 
         it("Reverts since nft not transffered", async function () {
@@ -585,7 +577,7 @@ describe("BitcoinNFTMarketplace", async () => {
                         }
                     ]
                 )
-            ).to.revertedWith("Marketplace: not transffered")
+            ).to.revertedWith("BitcoinNFTMarketplace: not transffered")
         })
 
         it("Reverts since nft transffered to another user", async function () {
@@ -614,7 +606,7 @@ describe("BitcoinNFTMarketplace", async () => {
                         }
                     ]
                 )
-            ).to.revertedWith("Marketplace: not transffered")
+            ).to.revertedWith("BitcoinNFTMarketplace: not transffered")
         })
 
     });
