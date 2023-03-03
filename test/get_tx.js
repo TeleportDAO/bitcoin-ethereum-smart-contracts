@@ -25,6 +25,10 @@ async function main() {
     );
     console.log("rawNFTTxTaproot \n", bitcoin.bitcoinUtils.parseRawTransaction(rawNFTTxTaproot), "\n");
 
+    const rawTransferTxTaproot = await bitcoinProvider.getRawTransaction(
+        'a5d3cc80ede492b5893ef00aaa4b6e2924656c693448743ab2be94f918315ae4'
+    );
+    console.log("rawTransferTxTaproot \n", bitcoin.bitcoinUtils.parseRawTransaction(rawTransferTxTaproot), "\n");
 
 }
 

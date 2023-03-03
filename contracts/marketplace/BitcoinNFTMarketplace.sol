@@ -88,12 +88,13 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         uint _outputIdx,
 		uint _satoshiIdx
 	) external override returns (bool) {
+
         require(_bitcoinPubKey.length == 64 || _bitcoinPubKey.length == 0, "invalid pub key"); // 0 for taproot, 64 for other cases
         bytes32 txId = BitcoinHelper.calculateTxId(_tx.version, _tx.vin, _tx.vout, _tx.locktime);
         
         // extract locking script from the output that includes the NTF
         bytes memory lockingScript = BitcoinHelper.getLockingScript(_tx.vout, _outputIdx);
-        if (_scriptType == ScriptTypes.P2TR) { // locking script = ONE (1 byte) 20 (1 byte) PUB_KEY (32 bytes)
+        if (_scriptType == ScriptTypes.P2TR) { // locking script = OP_1 (1 byte) 20 (1 byte) PUB_KEY (32 bytes)
             require(
                 _verifySchnorr(_convertToBytes32(_sliceBytes(lockingScript, 2, 33)), txId, _r, _s, _v),
                 "BitcoinNFTMarketplace: not nft owner"
@@ -406,9 +407,15 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
             outputValue += BitcoinHelper.parseOutputValue(_vout, i);
         }
 
+        if (_outputNFTIdx != 0) {
+            require(
+                _nftIdxInput > outputValue,
+                "BitcoinNFTMarketplace: not transffered"
+            );
+        }
+
         require(
-            _nftIdxInput > outputValue && 
-            _nftIdxInput < outputValue + BitcoinHelper.parseValueFromSpecificOutputHavingScript(
+            _nftIdxInput <= outputValue + BitcoinHelper.parseValueFromSpecificOutputHavingScript(
                 _vout,
                 _outputNFTIdx,
                 bids[_txId][_seller][_bidIdx].buyerBTCScript,
@@ -463,11 +470,11 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         return abi.decode(data, (bool));
     }
 
-    /// @notice                 Returns a sliced bytes
-    /// @param _data            Data that is sliced
-    /// @param _start           Start index of slicing
-    /// @param _end             End index of slicing
-    /// @return _result         The result of slicing
+    /// @notice Returns a sliced bytes
+    /// @param _data Data that is sliced
+    /// @param _start Start index of slicing
+    /// @param _end End index of slicing
+    /// @return _result The result of slicing
     function _sliceBytes(
         bytes memory _data,
         uint _start,
@@ -480,19 +487,21 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         }
     }
 
-    // bitcoin double hash function
-    function _doubleHash(bytes memory input) internal pure returns(bytes memory) {
-        bytes32 inputHash1 = sha256(input);
+    /// @notice Calculates bitcoin double hash function
+    function _doubleHash(bytes memory _input) internal pure returns(bytes memory) {
+        bytes32 inputHash1 = sha256(_input);
         bytes20 inputHash2 = ripemd160(abi.encodePacked(inputHash1));
         return abi.encodePacked(inputHash2);
     }
 
+    /// @notice Compare two bytes string
     function _compareBytes(bytes memory _a, bytes memory _b) internal pure returns (bool) {
         return keccak256(_a) == keccak256(_b);
     }
 
+    /// @notice Convert bytes with length 20 to address
     function _bytesToAddress(bytes memory _data) public pure returns (address) {
-        require(_data.length == 20, "Invalid address length");
+        require(_data.length == 20, "BitcoinNFTMarketplace: Invalid len");
         address addr;
         assembly {
             addr := mload(add(_data, 20))
@@ -500,10 +509,12 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         return addr;
     }
 
-    function _convertToBytes32(bytes memory data) public pure returns (bytes32) {
+    /// @notice Convert bytes with length 32 to bytes32
+    function _convertToBytes32(bytes memory _data) public pure returns (bytes32) {
+        require(_data.length == 32, "BitcoinNFTMarketplace: Invalid len");
         bytes32 result;
         assembly {
-            result := mload(add(data, 32))
+            result := mload(add(_data, 32))
         }
         return result;
     }

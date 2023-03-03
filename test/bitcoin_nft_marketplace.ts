@@ -99,6 +99,23 @@ describe("BitcoinNFTMarketplace", async () => {
         )
     }
 
+    async function listNFTTaproot(satoshiIdx = TEST_DATA.listNFTTaproot.satoshiIdx) {
+        await bitcoinNFTMarketplace.listNFT(
+            TEST_DATA.listNFTTaproot.bitcoinPubKey,
+            TEST_DATA.listNFTTaproot.scriptType,
+            TEST_DATA.listNFTTaproot.r,
+            TEST_DATA.listNFTTaproot.s,
+            TEST_DATA.listNFTTaproot.v,
+            {   version: TEST_DATA.listNFTTaproot.version,
+                vin: TEST_DATA.listNFTTaproot.vin,
+                vout: TEST_DATA.listNFTTaproot.vout,
+                locktime: TEST_DATA.listNFTTaproot.locktime
+            },
+            TEST_DATA.listNFTTaproot.outputIdx,
+            satoshiIdx
+        )
+    }
+
     async function putBid(btcScript = TEST_DATA.putBid.btcScript) {
         await bitcoinNFTMarketplaceSigner1.putBid(
             TEST_DATA.listNFT.txId,
@@ -109,9 +126,26 @@ describe("BitcoinNFTMarketplace", async () => {
         )
     }
 
+    async function putBidTaproot(btcScript = TEST_DATA.putBidTaproot.btcScript) {
+        await bitcoinNFTMarketplaceSigner1.putBid(
+            TEST_DATA.listNFTTaproot.txId,
+            deployerAddress,
+            btcScript,
+            TEST_DATA.putBidTaproot.scriptType,
+            {value: TEST_DATA.putBidTaproot.bidAmount}
+        )
+    }
+
     async function acceptBid(index: number) {
         await bitcoinNFTMarketplace.acceptBid(
             TEST_DATA.listNFT.txId,
+            index
+        )
+    }
+
+    async function acceptBidTaproot(index: number) {
+        await bitcoinNFTMarketplace.acceptBid(
+            TEST_DATA.listNFTTaproot.txId,
             index
         )
     }
@@ -507,6 +541,49 @@ describe("BitcoinNFTMarketplace", async () => {
                 TEST_DATA.sellNFT.transferTxId,
                 TEST_DATA.sellNFT.outputNFTIdx,
                 TEST_DATA.sellNFT.firstInputValue + TEST_DATA.listNFT.satoshiIdx,
+                0
+            )
+
+            const newBalance = await ethers.provider.getBalance(bitcoinNFTMarketplace.address);
+
+            // check contract balance after selling NFT
+            expect(
+                oldBalance.sub(TEST_DATA.putBid.bidAmount)
+            ).equal(newBalance, "Wrong balance")
+        })
+
+        it("Sell NFT Taproot", async function () {
+
+            await listNFTTaproot();
+            await putBidTaproot();
+            await acceptBidTaproot(0);
+
+            const oldBalance = await ethers.provider.getBalance(bitcoinNFTMarketplace.address);
+
+            await expect(
+                await bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFTTaproot.txId,
+                    deployerAddress,
+                    0,
+                    {   
+                        version: TEST_DATA.sellNFTTaproot.transferTxVersion,
+                        vin: TEST_DATA.sellNFTTaproot.transferTxVin,
+                        vout: TEST_DATA.sellNFTTaproot.transferTxVout,
+                        locktime: TEST_DATA.sellNFTTaproot.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFTTaproot.outputNFTIdx,
+                    TEST_DATA.sellNFTTaproot.blockNumber,
+                    TEST_DATA.sellNFTTaproot.intermediateNodes,
+                    TEST_DATA.sellNFTTaproot.index,
+                    []
+                )
+            ).to.emit(bitcoinNFTMarketplace, "NFTSold").withArgs(
+                TEST_DATA.listNFTTaproot.txId,
+                deployerAddress,
+                0,
+                TEST_DATA.sellNFTTaproot.transferTxId,
+                TEST_DATA.sellNFTTaproot.outputNFTIdx,
+                TEST_DATA.listNFTTaproot.satoshiIdx,
                 0
             )
 
