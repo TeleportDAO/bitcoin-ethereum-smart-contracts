@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.8.4;
 
-interface IBitcoinRelay {
+interface IRelay {
     // Structures
 
     /// @notice                 	Structure for recording block header
@@ -78,19 +78,19 @@ interface IBitcoinRelay {
     event NewSubmissionGasUsed(uint oldSubmissionGasUsed, uint newSubmissionGasUsed);
 
     /// @notice                     Emits when changes made to dispute time
-    event NewDisputeTime(disputeTime, _disputeTime);
+    event NewDisputeTime(uint oldDisputeTime, uint newDisputeTime);
 
     /// @notice                     Emits when changes made to proof time
-    event NewProofTime(proofTime, _proofTime);
+    event NewProofTime(uint oldProofTime, uint newProofTime);
 
     /// @notice                     Emits when changes made to min collateral relayer
-    event NewMinCollateralRelayer(minCollateralRelayer, _minCollateralRelayer);
+    event NewMinCollateralRelayer(uint oldMinCollateralRelayer, uint newMinCollateralRelayer);
 
     /// @notice                     Emits when changes made to min collateral disputer
-    event NewMinCollateralDisputer(minCollateralDisputer, _minCollateralDisputer);
+    event NewMinCollateralDisputer(uint oldMinCollateralDisputer, uint newMinCollateralDisputer);
 
     /// @notice                     Emits when changes made to dispute reward percentage
-    event NewDisputeRewardPercentage(disputeRewardPercentage, _disputeRewardPercentage);
+    event NewDisputeRewardPercentage(uint oldDisputeRewardPercentage, uint newDisputeRewardPercentage);
 
     // Read-only functions
 
@@ -98,7 +98,7 @@ interface IBitcoinRelay {
 
     function initialHeight() external view returns(uint);
 
-    function lastSubmittedHeight() external view returns(uint);
+    function lastVerifiedHeight() external view returns(uint);
 
     function finalizationParameter() external view returns(uint);
 
@@ -136,6 +136,8 @@ interface IBitcoinRelay {
 
     function minCollateralRelayer() external view returns(uint);
 
+    function minCollateralDisputer() external view returns(uint);
+
     function disputeTime() external view returns(uint);
 
     function proofTime() external view returns(uint);
@@ -162,9 +164,15 @@ interface IBitcoinRelay {
 
     function setSubmissionGasUsed(uint _submissionGasUsed) external;
 
-    function removeRelayer() external;
+    function setDisputeTime(uint _disputeTime) external;
 
-    function addRelayer() external payable;
+    function setProofTime(uint _proofTime) external;
+
+    function setMinCollateralRelayer(uint _minCollateralRelayer) external;
+
+    function setMinCollateralDisputer(uint _minCollateralDisputer) external;
+
+    function setDisputeRewardPercentage(uint _disputeRewardPercentage) external;
 
     function checkTxProof(
         bytes32 txid,
@@ -173,9 +181,9 @@ interface IBitcoinRelay {
         uint index
     ) external payable returns (bool);
 
-    function addHeader(bytes calldata _anchor, bytes calldata _header) external returns (bool);
+    function addHeader(bytes calldata _anchor, bytes calldata _header) external payable returns (bool);
 
-    function disputeHeader(uint _height, bytes32 _headerHash) external returns (bool);
+    function disputeHeader(uint _height, bytes32 _headerHash) external payable returns (bool);
 
     function getDisputeReward(uint _height, bytes32 _headerHash) external returns (bool);
 

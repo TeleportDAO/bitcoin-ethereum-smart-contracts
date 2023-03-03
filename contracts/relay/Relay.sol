@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.8.4;
 
-// import "../libraries/BitcoinHelper.sol";
+import "../libraries/TypedMemView.sol";
+import "../libraries/BitcoinHelper.sol";
 import "./interfaces/IRelay.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -12,7 +13,9 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
-    // using BitcoinHelper for bytes29;
+    using TypedMemView for bytes;
+    using TypedMemView for bytes29;
+    using BitcoinHelper for bytes29;
     using SafeERC20 for IERC20;
 
     // Public variables
@@ -56,9 +59,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         address _TeleportDAOToken
     ) {
         // Adds the initial block header to the chain
-        // bytes29 _genesisView = _genesisHeader.ref(0).tryAsHeader();
-        // require(_genesisView.notNull(), "Relay: stop being dumb");
-
+        bytes29 _genesisView = _genesisHeader.ref(0).tryAsHeader();
+        require(_genesisView.notNull(), "Relay: stop being dumb");
         // genesis header and period start can be same
         bytes32 _genesisHash = _genesisView.hash256();
         relayGenesisHash = _genesisHash;
@@ -68,6 +70,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         newBlockHeader.merkleRoot = _genesisView.merkleRoot();
         newBlockHeader.relayer = _msgSender();
         newBlockHeader.gasPrice = 0;
+        newBlockHeader.verified = true;
         chain[_height].push(newBlockHeader);
         require(
             _periodStart & bytes32(0x0000000000000000000000000000000000000000000000000000000000ffffff) == bytes32(0),
@@ -432,15 +435,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         require(msg.value >= minCollateralDisputer, "Relay: no enough collateral -- disputer");
         // save collateral amount
         disputers[_msgSender()] += msg.value;
-        require(
-            _getHeaderIdx(_height, _headerHash) < chain[_height].length, 
-            "Relay: header doesn't exist"
-        );
-        require(chain[_height][idx].startDisputeTime + disputeTime > now, "Relay: dispute time has passed");
+        uint idx = _getHeaderIdx(_height, _headerHash);
+        require(idx < chain[_height].length, "Relay: header doesn't exist");
+        require(chain[_height][idx].startDisputeTime + disputeTime > block.timestamp, "Relay: dispute time has passed");
         require(chain[_height][idx].disputer == address(0), "Relay: header disputed before");
 
         chain[_height][idx].disputer = _msgSender();
-        chain[_height][idx].startProofTime = now;
+        chain[_height][idx].startProofTime = block.timestamp;
 
         return true;
     }
@@ -463,10 +464,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // send the disputer reward + its collateral
         Address.sendValue(
             payable(chain[_height][idx].disputer), 
-            relayers[relayer] * disputeRewardPercentage / ONE_HUNDRED_PERCENT + disputer[chain[_height][idx].disputer]
+            relayers[chain[_height][idx].relayer] * disputeRewardPercentage / ONE_HUNDRED_PERCENT + disputers[chain[_height][idx].disputer]
         );
-        relayers[relayer] = 0;
-        disputer[chain[_height][idx].disputer] = 0;
+        relayers[chain[_height][idx].relayer] = 0;
+        disputers[chain[_height][idx].disputer] = 0;
         return true;
     }
 
@@ -554,7 +555,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @param _height          The height of the block header
     /// @param _headerHash      The hash of the block header
     /// @return                 If the header exists: its index, if not: # of headers in that height
-    function _getHeaderIdx(uint _height, bytes32 calldata _headerHash) internal returns (uint) {
+    function _getHeaderIdx(uint _height, bytes32 _headerHash) internal returns (uint) {
         for (uint i = 0; i < chain[_height].length; i++) {
             if (chain[_height][i].selfHash == _headerHash) {
                 return i;
@@ -590,12 +591,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         */
 
         // check if a previous height block gets verified
-        // todo test: when no prev block exists, and when two exist,also check now is correct and
+        // todo test: when no prev block exists, and when two exist,also check block.timestamp is correct and
         // does not have a huge error
-        require(
-            _getHeaderIdx(_anchorHeight, _previousHash) < chain[_anchorHeight].length, 
-            "Relay: anchor doesn't exist"
-        );
+        uint idx = _getHeaderIdx(_anchorHeight, _previousHash);
+        require(idx < chain[_anchorHeight].length, "Relay: anchor doesn't exist");
 
         if (!_disputed(_anchorHeight, idx)) {
             require(_disputeTimePassed(_anchorHeight, idx), "Relay: previous block not verified yet");
@@ -633,11 +632,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     function _disputeTimePassed(uint _height, uint idx) internal returns (bool) {
-        return (now - chain[_height][idx].startDisputeTime >= disputeTime)? true: false;
+        return (block.timestamp - chain[_height][idx].startDisputeTime >= disputeTime)? true: false;
     }
     
     function _proofTimePassed(uint _height, uint idx) internal returns (bool) {
-        return (now - chain[_height][idx].startProofTime >= proofTime)? true: false;
+        return (block.timestamp - chain[_height][idx].startProofTime >= proofTime)? true: false;
     }
 
     /// @notice                     Sends reward and compensation to the relayer
@@ -692,7 +691,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         newBlockHeader.relayer = _msgSender();
         newBlockHeader.gasPrice = tx.gasprice;
         newBlockHeader.verified = false;
-        newBlockHeader.startDisputeTime = now;
+        newBlockHeader.startDisputeTime = block.timestamp;
         chain[_height].push(newBlockHeader);
     }
 
