@@ -1,0 +1,14 @@
+* set 
+{
+    minCollateralDisputer, // should be >= proof submission cost for relayer + reward + protocol fee
+    minCollateralRelayer, // >= cost of get dispute reward and dispute header
+    disputeTime,
+    proofTime,
+    disputeRewardPercentage (~ 9000) // rest of the percentage remains for the contract as protocol fee
+}
+using setters when deploying
+
+
+* If a natural fork comes up, the abandoned block's collateral stays in the relay
+
+* see if we want to send the abandoned headers collaterals + protocol fees to a treasury?
