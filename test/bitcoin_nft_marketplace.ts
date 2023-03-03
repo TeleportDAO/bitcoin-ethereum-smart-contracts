@@ -153,6 +153,31 @@ describe("BitcoinNFTMarketplace", async () => {
             )
         })
 
+        it("List an NFT Taproot", async function () {
+            await expect(
+                bitcoinNFTMarketplace.listNFT(
+                    TEST_DATA.listNFTTaproot.bitcoinPubKey,
+                    TEST_DATA.listNFTTaproot.scriptType,
+                    TEST_DATA.listNFTTaproot.r,
+                    TEST_DATA.listNFTTaproot.s,
+                    TEST_DATA.listNFTTaproot.v,
+                    {   
+                        version: TEST_DATA.listNFTTaproot.version,
+                        vin: TEST_DATA.listNFTTaproot.vin,
+                        vout: TEST_DATA.listNFTTaproot.vout,
+                        locktime: TEST_DATA.listNFTTaproot.locktime
+                    },
+                    TEST_DATA.listNFTTaproot.outputIdx,
+                    TEST_DATA.listNFTTaproot.satoshiIdx
+                )
+            ).to.emit(bitcoinNFTMarketplace, "NFTListed").withArgs(
+                TEST_DATA.listNFTTaproot.txId,
+                TEST_DATA.listNFTTaproot.outputIdx,
+                TEST_DATA.listNFTTaproot.satoshiIdx,
+                deployerAddress
+            )
+        })
+
         it("Reverts since public key is invalid", async function () {
             expect(
                 bitcoinNFTMarketplace.listNFT(

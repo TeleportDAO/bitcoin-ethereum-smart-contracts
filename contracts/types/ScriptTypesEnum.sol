@@ -6,5 +6,6 @@ pragma solidity >=0.8.0 <0.8.4;
         P2PKH, // 20 bytes        
         P2SH, // 20 bytes          
         P2WPKH, // 20 bytes          
-        P2WSH // 32 bytes               
+        P2WSH, // 32 bytes
+        P2TR // 32 bytes               
     }

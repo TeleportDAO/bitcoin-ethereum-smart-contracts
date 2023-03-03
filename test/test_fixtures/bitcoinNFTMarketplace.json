@@ -14,6 +14,21 @@
 		"satoshiIdx": 75000,
 		"txId": "0x5c81d4e17eba43d947923d29f0bf9653a33f58b450a03ddcddd16ec663de1908"
 	},
+	"listNFTTaproot": {
+		"bitcoinPubKey" : "0xd50de8e3608865decf96b8d0eb6d75d493389c93635443ce8808613cb7720c0cbde041e68aed2aef05b71d94736181fa0c57053e1e33bc3812ff1639e6296f03",
+		"pubKeyHash": "0x8EEA88B7D649315245676D30A98B9B2275BBFE4B",
+		"scriptType" : 5,
+		"r" : "0x546b4dde3c6548bc5b06d2e5c75c9ae4c304542e5d7bec0ac15a198f67e5ad68",
+		"s" : "0xfeccd8076115626843ca9c7789cc7b65b6e808f3c13cd17d801464be5361c0bd",
+		"v" : 28,
+		"version": "0x01000000",
+		"vin": "0x018bc39a06ee3d91e796dcd4d70e9edf6f94bf7dcfdfe6406fb991caebd6f4bfe40000000000fdffffff",
+		"vout": "0x011027000000000000225120d50de8e3608865decf96b8d0eb6d75d493389c93635443ce8808613cb7720c0c",
+		"locktime": "0x00000000",
+		"outputIdx": 0,
+		"satoshiIdx": 75000,
+		"txId": "0xd82ef1708b9707e72e7d1558234c42060370f6d51382d769d1024ebb52d65350"
+	},
 	"putBid": {
 		"btcScript": "0x12ab8dc588ca9d5787dde7eb29569da63c3a238c",
 		"anotherBtcScript": "0x13ab8dc588ca9d5787dde7eb29569da63c3a238c",
