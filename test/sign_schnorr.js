@@ -1,22 +1,47 @@
 const { ethers } = require("ethers");
+const bitcoin = require("bitcoinjs-lib");
+const ecc = require("@bitcoinerlab/secp256k1");
 const { randomBytes } = require('crypto')
 const secp256k1 = require('secp256k1')
 const arrayify = ethers.utils.arrayify;
 
 function main() {
-	let privKey = Buffer.from("2fd7cab0970c692b4151d77a6aeebcae2a3284556cbfc6f182c571eccfc2424f", "hex");
+	bitcoin.initEccLib(ecc);
+	let privKey = Buffer.from("e6d782aa4884ccb8bfb4646e29abe7b4e309d434552e6176296af834d8de0aea", "hex");
 	var publicKey = secp256k1.publicKeyCreate(privKey);
-    var m = Buffer.from("d82ef1708b9707e72e7d1558234c42060370f6d51382d769d1024ebb52d65350", "hex"); // message
+	console.log("taproot address: ", createTaprootAddress(publicKey));
+
+    var m = Buffer.from("d312e22b7e2dad1e2802031600213fbca8b1e0286c84a3ca9690fe592e28bd1a", "hex"); // message
 	var sig = sign(m, privKey); 
-	console.log("pub key: ",  Buffer.from(publicKey.slice(1, 33).buffer).toString('hex'));
+	console.log("taproot pub key: ",  Buffer.from(publicKey.slice(1, 33).buffer).toString('hex'));
 	console.log("msg: ", Buffer.from(arrayify(m).buffer).toString('hex'))
 	console.log("v: ", (publicKey[0] - 2 + 27).toString());
 	console.log("r: ", Buffer.from(sig.e.buffer).toString('hex'));
 	console.log("s: ", (sig.s).toString('hex'));
 }
 
-function sign(m, x) {
-	var publicKey = secp256k1.publicKeyCreate(x);
+function taprootPrivKey(pubKey, privKey, script) { // all inputs are buffers
+	// taproot privKey = privKey + H(pubKey || script)
+	let tweak = bitcoin.crypto.taggedHash(
+		"TapTweak", 
+		Buffer.concat(script ? [pubKey.slice(1, 33), script] : [pubKey])
+	);
+	return ecc.privateAdd(
+        privKey,
+        tweak,
+    );
+}
+
+function createTaprootAddress(publicKey) {
+	// Derive the Taproot script that will be used to create the address
+	const taproot_script = bitcoin.payments.p2tr({
+		pubkey: Buffer.from(publicKey.slice(1, 33).buffer)
+	});
+	return taproot_script.address;
+}
+
+function sign(m, privKey) {
+	var publicKey = secp256k1.publicKeyCreate(privKey);
 
 	// R = G * k
 	var k = randomBytes(32);
@@ -25,8 +50,8 @@ function sign(m, x) {
 	// e = h(address(R) || compressed pubkey || m)
 	var e = challenge(R, m, publicKey);
 
-	// xe = x * e
-	var xe = secp256k1.privateKeyTweakMul(x, e);
+	// xe = privKey * e
+	var xe = secp256k1.privateKeyTweakMul(privKey, e);
 
 	// s = k + xe
 	var s = secp256k1.privateKeyTweakAdd(k, xe);

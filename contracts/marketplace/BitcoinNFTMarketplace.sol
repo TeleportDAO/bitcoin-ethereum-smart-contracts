@@ -72,7 +72,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     /// @dev User should sign the txId of the NFT with the same private key that holds the NFT
     /// @param _bitcoinPubKey Bitcoin PubKey of the NFT holder (without starting '04'). Don't need to be passed in the case of Taproot
     /// @param _scriptType Type of the account that holds the NFT
-    /// @param _r Part of signature of _bitcoinPubKey for the txId (= e)
+    /// @param _r Part of signature of _bitcoinPubKey for the txId (or `e` challenge for schnorr sig)
     /// @param _s Part of signature of _bitcoinPubKey for the txId
     /// @param _v is needed for recovering the public key (it can be 27 or 28)
     /// @param _tx Transaction that includes the NFT
@@ -91,7 +91,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
 
         require(_bitcoinPubKey.length == 64 || _bitcoinPubKey.length == 0, "invalid pub key"); // 0 for taproot, 64 for other cases
         bytes32 txId = BitcoinHelper.calculateTxId(_tx.version, _tx.vin, _tx.vout, _tx.locktime);
-        
+
         // extract locking script from the output that includes the NTF
         bytes memory lockingScript = BitcoinHelper.getLockingScript(_tx.vout, _outputIdx);
         if (_scriptType == ScriptTypes.P2TR) { // locking script = OP_1 (1 byte) 20 (1 byte) PUB_KEY (32 bytes)
@@ -303,7 +303,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     /// @notice Checks the validity of schnorr signature
     /// @param _pubKeyX public key x-coordinate
     /// @param _msg msg hash that user signed
-    /// @param _e schnorr signature challenge (~ r)
+    /// @param _e schnorr signature challenge
     /// @param _s schnorr signature
     /// @param _v public key y-coordinate parity (27 or 28)
     function _verifySchnorr(

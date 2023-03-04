@@ -212,6 +212,31 @@ describe("BitcoinNFTMarketplace", async () => {
             )
         })
 
+        it("List real NFT", async function () {
+            await expect(
+                bitcoinNFTMarketplace.listNFT(
+                    TEST_DATA.realTx.bitcoinPubKey,
+                    TEST_DATA.realTx.scriptType,
+                    TEST_DATA.realTx.r,
+                    TEST_DATA.realTx.s,
+                    TEST_DATA.realTx.v,
+                    {   
+                        version: TEST_DATA.realTx.version,
+                        vin: TEST_DATA.realTx.vin,
+                        vout: TEST_DATA.realTx.vout,
+                        locktime: TEST_DATA.realTx.locktime
+                    },
+                    TEST_DATA.realTx.outputIdx,
+                    TEST_DATA.realTx.satoshiIdx
+                )
+            ).to.emit(bitcoinNFTMarketplace, "NFTListed").withArgs(
+                TEST_DATA.realTx.txId,
+                TEST_DATA.realTx.outputIdx,
+                TEST_DATA.realTx.satoshiIdx,
+                deployerAddress
+            )
+        })
+
         it("Reverts since public key is invalid", async function () {
             expect(
                 bitcoinNFTMarketplace.listNFT(
