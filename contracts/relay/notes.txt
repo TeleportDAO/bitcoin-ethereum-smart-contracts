@@ -12,3 +12,6 @@ using setters when deploying
 * If a natural fork comes up, the abandoned block's collateral stays in the relay
 
 * see if we want to send the abandoned headers collaterals + protocol fees to a treasury?
+
+* if a natural fork comes up, the relayer of the abandoned block can later come provide a proof and get its collateral back
+(before the corresponding height gets finalized and pruned), dispute is not necessarily needed for providing proofs
