@@ -92,6 +92,9 @@ interface IRelay {
     /// @notice                     Emits when changes made to dispute reward percentage
     event NewDisputeRewardPercentage(uint oldDisputeRewardPercentage, uint newDisputeRewardPercentage);
 
+    /// @notice                     Emits when changes made to proof reward percentage
+    event NewProofRewardPercentage(uint oldProofRewardPercentage, uint newProofRewardPercentage);
+
     // Read-only functions
 
     function relayGenesisHash() external view returns (bytes32);
@@ -144,6 +147,8 @@ interface IRelay {
 
     function disputeRewardPercentage() external view returns(uint);
 
+    function proofRewardPercentage() external view returns(uint);
+
     // State-changing functions
 
     function pauseRelay() external;
@@ -174,6 +179,8 @@ interface IRelay {
 
     function setDisputeRewardPercentage(uint _disputeRewardPercentage) external;
 
+    function setProofRewardPercentage(uint _proofRewardPercentage) external;
+
     function checkTxProof(
         bytes32 txid,
         uint blockHeight,
@@ -181,13 +188,17 @@ interface IRelay {
         uint index
     ) external payable returns (bool);
 
-    function addHeader(bytes calldata _anchor, bytes calldata _header) external payable returns (bool);
+    function addHeader(bytes32 _anchorHash, bytes calldata _header) external payable returns (bool);
 
-    function disputeHeader(uint _height, bytes32 _headerHash) external payable returns (bool);
+    function disputeHeader(bytes32 _headerHash) external payable returns (bool);
 
-    function getDisputeReward(uint _height, bytes32 _headerHash) external returns (bool);
+    function getDisputeReward(bytes32 _headerHash) external returns (bool);
 
-    function provideHeaderProof() external returns (bool);
+    function provideHeaderProof(bytes calldata _anchor, bytes calldata _header) external returns (bool);
 
-    function provideHeaderProofWithRetarget() external returns (bool);
+    function provideHeaderProofWithRetarget(
+        bytes calldata _oldPeriodStartHeader,
+        bytes calldata _oldPeriodEndHeader,
+        bytes calldata _header
+    ) external returns (bool);
 }

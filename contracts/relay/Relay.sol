@@ -39,6 +39,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override minCollateralRelayer;
     uint public override minCollateralDisputer;
     uint public override disputeRewardPercentage;
+    uint public override proofRewardPercentage;
 
     // Private and internal variables
     mapping(uint => blockHeader[]) private chain; // height => list of block headers
@@ -247,6 +248,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     function setDisputeRewardPercentage(uint _disputeRewardPercentage) external override onlyOwner {
         _setDisputeRewardPercentage(_disputeRewardPercentage);
     }
+    
+    /// @notice                             Internal setter for proofRewardPercentage
+    /// @param _proofRewardPercentage     A percentage of the disputer collateral that goes to the relayer
+    function setProofRewardPercentage(uint _proofRewardPercentage) external override onlyOwner {
+        _setProofRewardPercentage(_proofRewardPercentage);
+    }
 
     /// @notice                             Internal setter for rewardAmountInTDT
     /// @dev                                This award is for the relayer who has a finalized block header
@@ -358,6 +365,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         disputeRewardPercentage = _disputeRewardPercentage;
     }
 
+    /// @notice                             Internal setter for proofRewardPercentage
+    /// @param _proofRewardPercentage       A percentage of the disputer collateral that goes to the relayer
+    function _setProofRewardPercentage(uint _proofRewardPercentage) private {
+        emit NewProofRewardPercentage(proofRewardPercentage, _proofRewardPercentage);
+        proofRewardPercentage = _proofRewardPercentage;
+    }
+
     /// @notice                         Checks if a tx is included and finalized on the source blockchain
     /// @dev                            Checks if the block is finalized, and Merkle proof is correct
     /// @param  _txid                   Desired tx Id in LE form
@@ -400,11 +414,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     /// @notice             Adds header to storage
     /// @dev                
-    /// @param  _anchor     The header immediately preceeding the new chain
+    /// @param  _anchorHash The header hash immediately preceeding the new chain
     /// @param  _header     A 80-byte Bitcoin header
     /// @return             True if successfully written, error otherwise
     function addHeader(
-        bytes calldata _anchor, 
+        bytes32 _anchorHash, 
         bytes calldata _header
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         // check relayer has enough available collateral
@@ -412,18 +426,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         relayers[_msgSender()] += msg.value;
         
         bytes29 _headerView = _header.ref(0).tryAsHeaderArray();
-        bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
+        require(_headerView.notNull(), "Relay: header array length must be 80 bytes");
 
-        _checkInputSizeAddHeader(_headerView, _anchorView);
-        _addHeader(_anchorView, _headerView);
+        _addHeader(_anchorHash, _headerView);
 
         return true;
     }
 
-    /// @notice             Disputes an unverified block header
-    /// @dev                
-    /// @param  _height     Height of the Bitcoin header
-    /// @return             True if successfully passed, error otherwise
+    // todo add 2 addHeader functions of pessimistic verification for only owner in case of an emergency
+    // so that we wouldn't need to wait long for a coorection
+
+    /// @notice                 Disputes an unverified block header
+    /// @param  _headerHash     Hash of the Bitcoin header to dispute
+    /// @return                 True if successfully passed, error otherwise
     function disputeHeader(bytes32 _headerHash) external payable nonReentrant whenNotPaused override returns (bool) {
         /*
             1. check the caller is paying enough collateral
@@ -469,26 +484,29 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         relayers[chain[_height][idx].relayer] = 0;
         disputers[chain[_height][idx].disputer] = 0;
         return true;
-    } // todo interface
+    }
 
     function provideHeaderProof(
-        bytes29 _anchor, 
-        bytes29 _header
+        bytes calldata _anchor, 
+        bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
         // todo check it wouldn't cause a problem if block wasn't disputed before (same for with retarget)
-        return _checkHeaderProof(_anchor, _header, false);
-    } // todo modify inputs interface
+        bytes29 _headerView = _header.ref(0).tryAsHeaderArray();
+        bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
+
+        _checkInputSizeAddHeader(_headerView, _anchorView);
+        return _checkHeaderProof(_anchorView, _headerView, false);
+    }
 
     function provideHeaderProofWithRetarget(
-        bytes29 _oldStart,
-        bytes29 _oldEnd,
-        bytes29 _header
+        bytes calldata _oldPeriodStartHeader,
+        bytes calldata _oldPeriodEndHeader,
+        bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
         bytes29 _oldStart = _oldPeriodStartHeader.ref(0).tryAsHeader();
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
-        bytes29 _headerView = _header.ref(0).tryAsHeader();
 
-        _checkInputSizeAddHeadersWithRetarget(_oldStart, _oldEnd);
+        _checkInputSizeAddHeaderWithRetarget(_oldStart, _oldEnd);
 
         // requires that both blocks are known
         uint256 _startHeight = _findHeight(_oldStart.hash256());
@@ -506,8 +524,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: period header difficulties do not match");
 
         /* NB: This comparison looks weird because header nBits encoding truncates targets */
-        bytes29 _newStart = _header.indexHeaderArray(0);
-        uint256 _actualTarget = _newStart.target();
+        bytes29 _headerView = _header.ref(0).tryAsHeader(); // new start
+        uint256 _actualTarget = _headerView.target();
         uint256 _expectedTarget = BitcoinHelper.retargetAlgorithm(
             _oldStart.target(),
             _oldStart.time(),
@@ -518,18 +536,18 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: invalid retarget provided"
         );
 
-        return _checkHeaderProof(_oldEnd, _header, true);
+        return _checkHeaderProof(_oldEnd, _headerView, true);
     }
 
     // todo emit events everywhere
 
-    function _checkHeaderProof(bytes calldata _anchor, bytes calldata _header, bool _withRetarget) internal returns (bool) {
+    function _checkHeaderProof(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal returns (bool) {
         // Extract basic info
         bytes32 _currentHash = _header.hash256();
         uint256 _height = _findHeight(_currentHash); // revert if the block is unknown
         uint idx = _findIndex(_currentHash, _height);
 
-        _checkProofCanBeProvided(_currentHash, _height, idx);
+        _checkProofCanBeProvided(_height, idx);
 
         // check the proof validity
         _checkProofValidity(_anchor, _header, _withRetarget);
@@ -540,13 +558,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    function _checkProofValidity(bytes calldata _anchor, bytes calldata _header, bool _withRetarget) internal {
+    function _checkProofValidity(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal view {
         // extract basic info
         bytes32 _previousHash = _anchor.hash256();
         uint _anchorHeight = _findHeight(_previousHash); // reverts if the header doesn't exist
         uint256 _height = _anchorHeight + 1;
         bytes32 _currentHash = _header.hash256();
-        uint256 _target = _headers.indexHeaderArray(0).target();
+        uint256 _target = _header.indexHeaderArray(0).target();
 
         // no retargetting should happen
         require(
@@ -554,10 +572,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: unexpected retarget on external call"
         );
 
-        // Blocks that are multiplies of 2016 should be submitted using addHeadersWithRetarget
+        // Blocks that are multiplies of 2016 should be submitted using withRetarget
         require(
             _withRetarget || _height % BitcoinHelper.RETARGET_PERIOD_BLOCKS != 0,
-            "Relay: headers should be submitted by calling addHeadersWithRetarget"
+            "Relay: proof should be submitted by calling provideHeaderProofWithRetarget"
         );
 
         // check that headers are in a coherent chain (no retargets, hash links good)
@@ -568,8 +586,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             TypedMemView.reverseUint256(uint256(_currentHash)) <= _target,
             "Relay: header work is insufficient"
         );
-
-        return true;
     }
 
     function _verifyHeaderAfterDispute(uint _height, uint idx) internal {
@@ -578,12 +594,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         Address.sendValue(
             payable(chain[_height][idx].relayer), 
             relayers[chain[_height][idx].relayer] + disputers[chain[_height][idx].disputer] * proofRewardPercentage / ONE_HUNDRED_PERCENT
-        ); // todo add proofRewardPercentage var and interface and setter
+        ); 
         relayers[chain[_height][idx].relayer] = 0;
         disputers[chain[_height][idx].disputer] = 0;
     }
 
-    function _checkProofCanBeProvided(bytes32 _currentHash, uint _height, uint idx) internal {
+    function _checkProofCanBeProvided(uint _height, uint idx) internal view {
         // not verified before
         require(!chain[_height - 1][idx].verified, "Relay: header been verified before");
         // proof time is not passed
@@ -602,7 +618,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice                     Checks the size of addHeadersWithRetarget inputs 
     /// @param  _oldStart           Input to the addHeadersWithRetarget and ownerAddHeadersWithRetarget functions
     /// @param  _oldEnd             Input to the addHeadersWithRetarget and ownerAddHeadersWithRetarget functions
-    function _checkInputSizeAddHeadersWithRetarget(
+    function _checkInputSizeAddHeaderWithRetarget(
         bytes29 _oldStart,
         bytes29 _oldEnd
     ) internal pure {
@@ -687,11 +703,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice             Adds header to storage
     /// @dev                We do not get a block on top of an unverified block
     /// @return             True if successfully written, error otherwise
-    function _addHeader(bytes29 _anchor, bytes29 _header) internal returns (bool) {
-
+    function _addHeader(bytes32 _anchorHash, bytes29 _header) internal returns (bool) {
         // Extract basic info
-        bytes32 _previousHash = _anchor.hash256();
-        uint256 _anchorHeight = _findHeight(_previousHash); // revert if the block is unknown
+        uint256 _anchorHeight = _findHeight(_anchorHash); // revert if the block is unknown
         uint256 _height = _anchorHeight + 1;
         bytes32 _currentHash = _header.hash256();
 
@@ -710,12 +724,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: block headers are too old"
         );
 
-        // check if a previous height block gets verified
+        // The below check prevents adding a replicated block header
+        require(
+            previousBlock[_currentHash] == bytes32(0),
+            "Relay: the block header exists on the relay"
+        );
+
+        // find the previous header
         // todo test: when no prev block exists, and when two exist,also check block.timestamp is correct and
         // does not have a huge error
-        uint idx = _findIndex(_previousHash, _anchorHeight);
+        uint idx = _findIndex(_anchorHash, _anchorHeight);
         require(idx < chain[_anchorHeight].length, "Relay: anchor doesn't exist");
 
+        // check if a previous height block gets verified
         if (!_disputed(_anchorHeight, idx)) {
             require(_disputeTimePassed(_anchorHeight, idx), "Relay: previous block not verified yet");
             if (!chain[_anchorHeight][idx].verified) {
@@ -731,30 +752,24 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _pruneChain();
         }
 
-        // The below check prevents adding a replicated block header
-        require(
-            previousBlock[_currentHash] == bytes32(0),
-            "Relay: the block header exists on the relay"
-        );
-
-        previousBlock[_currentHash] = _previousHash;
+        previousBlock[_currentHash] = _anchorHash;
         blockHeight[_currentHash] = _height;
-        emit BlockAdded(_height, _currentHash, _previousHash, _msgSender());
+        emit BlockAdded(_height, _currentHash, _anchorHash, _msgSender());
         _addToChain(_header, _height);
         
         return true;
     }
 
-    function _disputed(uint _height, uint idx) internal returns (bool) {
-        return (chain[_height][idx].disputer == address(0))? false: true;
+    function _disputed(uint _height, uint idx) internal view returns (bool) {
+        return (chain[_height][idx].disputer == address(0)) ? false : true;
     }
 
-    function _disputeTimePassed(uint _height, uint idx) internal returns (bool) {
-        return (block.timestamp - chain[_height][idx].startDisputeTime >= disputeTime)? true: false;
+    function _disputeTimePassed(uint _height, uint idx) internal view returns (bool) {
+        return (block.timestamp - chain[_height][idx].startDisputeTime >= disputeTime) ? true : false;
     }
     
-    function _proofTimePassed(uint _height, uint idx) internal returns (bool) {
-        return (block.timestamp - chain[_height][idx].startProofTime >= proofTime)? true: false;
+    function _proofTimePassed(uint _height, uint idx) internal view returns (bool) {
+        return (block.timestamp - chain[_height][idx].startProofTime >= proofTime) ? true : false;
     }
 
     /// @notice                     Sends reward and compensation to the relayer
@@ -833,7 +848,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             uint currentHeight = lastVerifiedHeight;
             uint stableIdx = 0;
             while (idx > 0) {
-                // bytes29 header = chain[currentHeight][stableIdx];
                 bytes32 parentHeaderHash = chain[currentHeight][stableIdx].parentHash;
                 stableIdx = _findIndex(parentHeaderHash, currentHeight-1);
                 idx--;
