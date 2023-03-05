@@ -7,9 +7,10 @@ const arrayify = ethers.utils.arrayify;
 
 function main() {
 	bitcoin.initEccLib(ecc);
-	let privKey = Buffer.from("e6d782aa4884ccb8bfb4646e29abe7b4e309d434552e6176296af834d8de0aea", "hex");
+	let privKey = Buffer.from("46c210eba4b72d657236dd8f84b79f5a25e5d206fcfe2c66bd9c06867e5f640f", "hex");
 	var publicKey = secp256k1.publicKeyCreate(privKey);
 	console.log("taproot address: ", createTaprootAddress(publicKey));
+	console.log("segwit address: ", createSegwitAddress(publicKey));
 
     var m = Buffer.from("d312e22b7e2dad1e2802031600213fbca8b1e0286c84a3ca9690fe592e28bd1a", "hex"); // message
 	var sig = sign(m, privKey); 
@@ -38,6 +39,14 @@ function createTaprootAddress(publicKey) {
 		pubkey: Buffer.from(publicKey.slice(1, 33).buffer)
 	});
 	return taproot_script.address;
+}
+
+function createSegwitAddress(publicKey) {
+	// Derive the Taproot script that will be used to create the address
+	const segwit_script = bitcoin.payments.p2wpkh({
+		pubkey: Buffer.from(publicKey.buffer)
+	});
+	return segwit_script.address;
 }
 
 function sign(m, privKey) {

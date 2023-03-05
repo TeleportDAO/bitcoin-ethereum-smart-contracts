@@ -66,7 +66,8 @@ describe("BitcoinNFTMarketplace", async () => {
             mockBitcoinRelay.address,
             TRANSFER_DEADLINE,
             0,
-            deployerAddress
+            deployerAddress,
+            true
         );
 
         return bitcoinNFTMarketplace;

@@ -98,6 +98,8 @@ interface IBitcoinNFTMarketplace {
 
     function treasury() external view returns (address);
 
+    function isSignRequired() external view returns (bool);
+
 	// State-changing functions
 
     function setRelay(address _relay) external;
@@ -107,6 +109,12 @@ interface IBitcoinNFTMarketplace {
     function setProtocolFee(uint _protocolFee) external;
 
     function setTreasury(address _treasury) external;
+
+    function setIsSignRequired(bool _isSignRequired) external;
+
+    function pause() external;
+
+    function unpause() external;
 
 	function listNFT(
         bytes memory _bitcoinPubKey,
