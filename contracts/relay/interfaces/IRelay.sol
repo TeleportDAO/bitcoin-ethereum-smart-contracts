@@ -4,12 +4,12 @@ pragma solidity >=0.8.0 <0.8.4;
 interface IRelay {
     // Structures
 
-    /// @notice                 	Structure for recording block header
+    /// @notice                 	Structure for recording block data
     /// @dev                        If the block data provided by the Relayer is not correct,
     ///                             it's collateral might get slashed
     /// @param merkleRoot          	Merkle root of the txs in the block
     /// @param parentMerkleRoot     Merkle root of the txs in the parent block
-    /// @param relayer       	    Address of relayer who submitted the block header
+    /// @param relayer       	    Address of relayer who submitted the block data
     /// @param gasPrice             Gas price of tx that relayer submitted the block data
     /// @param verified             Whether the correctness of the block data is verified or not
     /// @param startDisputeTime     When timer starts for submitting a dispute
@@ -28,11 +28,11 @@ interface IRelay {
 
     // Events
 
-    /// @notice                     Emits when a block header is added
-    /// @param height               Height of submitted header
+    /// @notice                     Emits when a block is added
+    /// @param height               Height of submitted block
     /// @param merkleRoot          	Merkle root of the txs in the block
     /// @param parentMerkleRoot     Merkle root of the txs in the parent block
-    /// @param relayer              Address of relayer who submitted the block header
+    /// @param relayer              Address of relayer who submitted the block data
     event BlockAdded(
         uint indexed height,
         bytes32 merkleRoot,
@@ -40,24 +40,25 @@ interface IRelay {
         address indexed relayer
     );
 
-    /// @notice                     Emits when a block header is added
-    /// @param height               Height of submitted header
+    /// @notice                     Emits when a block is added
+    /// @param height               Height of submitted block
     /// @param merkleRoot          	Merkle root of the txs in the block
     /// @param parentMerkleRoot     Merkle root of the txs in the parent block
-    /// @param relayer              Address of relayer who submitted the block header
+    /// @param relayer              Address of relayer who submitted the block data
+    /// @param disputer             The address that disputed the data of this block
     event BlockVerified(
         uint indexed height,
-        bytes32 merkleRoot,
-        bytes32 indexed parentMerkleRoot,
+        bytes32 indexed merkleRoot,
+        bytes32 parentMerkleRoot,
         address indexed relayer,
         address disputer
     );
 
-    /// @notice                     Emits when a block header gets finalized
-    /// @param height               Height of the header
+    /// @notice                     Emits when a block gets finalized
+    /// @param height               Height of the block
     /// @param merkleRoot          	Merkle root of the txs in the block
     /// @param parentMerkleRoot     Merkle root of the txs in the parent block
-    /// @param relayer              Address of relayer who submitted the block header
+    /// @param relayer              Address of relayer who submitted the block data
     /// @param rewardAmountTNT      Amount of reward that the relayer receives in target native token
     /// @param rewardAmountTDT      Amount of reward that the relayer receives in TDT
     event BlockFinalized(
@@ -68,6 +69,32 @@ interface IRelay {
         uint rewardAmountTNT,
         uint rewardAmountTDT
     );
+
+    /// @notice                     Emits when a block get disputed
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param disputer             The address that disputed the data of this block
+    /// @param relayer              Address of relayer who submitted the block data
+    /// @param relayerCollateral    Collateral of relayer locked to submit the block data before it gets verified
+    /// @param disputerCollateral   Collateral of disputer locked to submit the dispute before it gets verified
+    event DisputeReward(
+            bytes32 merkleRoot,
+            address indexed disputer,
+            address indexed relayer,
+            uint relayerCollateral,
+            uint disputerCollateral
+    );
+
+    /// @notice                     Emits when a block get disputed
+    /// @param height               Height of the block
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param disputer             The address that disputed the data of this block
+    /// @param relayer              Address of relayer who submitted the block data
+    event BlockDisputed(
+            uint indexed height,
+            bytes32 indexed merkleRoot,
+            address disputer,
+            address indexed relayer
+        );
          
     /// @notice                     Emits when changes made to reward amount in TDT
     event NewRewardAmountInTDT (uint oldRewardAmountInTDT, uint newRewardAmountInTDT);

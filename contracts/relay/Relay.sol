@@ -435,7 +435,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     // todo add 2 addHeader functions of pessimistic verification for only owner in case of an emergency
-    // so that we wouldn't need to wait long for a coorection
+    // so that we wouldn't need to wait long for a correction
 
     /// @notice                     Disputes an unverified block header
     /// @param  _blockMerkleRoot    Hash of the Bitcoin header to dispute
@@ -452,12 +452,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // save collateral amount
         disputers[_msgSender()] += msg.value;
         uint _height = _findHeight(_blockMerkleRoot); // reverts if header does not exist
-        uint idx = _findIndex(_blockMerkleRoot, _height);
-        require(chain[_height][idx].startDisputeTime + disputeTime > block.timestamp, "Relay: dispute time has passed");
-        require(chain[_height][idx].disputer == address(0), "Relay: header disputed before");
+        uint _idx = _findIndex(_blockMerkleRoot, _height);
+        require(chain[_height][_idx].startDisputeTime + disputeTime > block.timestamp, "Relay: dispute time has passed");
+        require(chain[_height][_idx].disputer == address(0), "Relay: header disputed before");
 
-        chain[_height][idx].disputer = _msgSender();
-        chain[_height][idx].startProofTime = block.timestamp;
+        chain[_height][_idx].disputer = _msgSender();
+        chain[_height][_idx].startProofTime = block.timestamp;
+
+        emit BlockDisputed(
+            _height,
+            _blockMerkleRoot,
+            _msgSender(),
+            chain[_height][_idx].relayer
+        );
 
         return true;
     }
@@ -472,18 +479,27 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             4. check the header has not been verified
         */
         uint _height = _findHeight(_blockMerkleRoot); // reverts if header does not exist
-        uint idx = _findIndex(_blockMerkleRoot, _height);
-        require(_disputed(_height, idx), "Relay: header not disputed");
-        require(_proofTimePassed(_height, idx), "Relay: proof time not passed");
-        require(!chain[_height][idx].verified, "Relay: header has been verified");
+        uint _idx = _findIndex(_blockMerkleRoot, _height);
+        require(_disputed(_height, _idx), "Relay: header not disputed");
+        require(_proofTimePassed(_height, _idx), "Relay: proof time not passed");
+        require(!chain[_height][_idx].verified, "Relay: header has been verified");
+
+        emit DisputeReward(
+            _blockMerkleRoot, 
+            chain[_height][_idx].disputer,
+            chain[_height][_idx].relayer,
+            relayers[chain[_height][_idx].relayer],
+            disputers[chain[_height][_idx].disputer]
+        );
 
         // send the disputer reward + its collateral
         Address.sendValue(
-            payable(chain[_height][idx].disputer), 
-            relayers[chain[_height][idx].relayer] * disputeRewardPercentage / ONE_HUNDRED_PERCENT + disputers[chain[_height][idx].disputer]
+            payable(chain[_height][_idx].disputer), 
+            relayers[chain[_height][_idx].relayer] * disputeRewardPercentage / ONE_HUNDRED_PERCENT + disputers[chain[_height][_idx].disputer]
         );
-        relayers[chain[_height][idx].relayer] = 0;
-        disputers[chain[_height][idx].disputer] = 0;
+        relayers[chain[_height][_idx].relayer] = 0;
+        disputers[chain[_height][_idx].disputer] = 0;
+
         return true;
     }
 
@@ -541,31 +557,32 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     // todo emit events everywhere
+    // todo NatSpec
 
     function _checkHeaderProof(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal returns (bool) {
         // Extract basic info
         bytes32 _blockMerkleRoot = _header.merkleRoot();
         uint256 _height = _findHeight(_blockMerkleRoot); // revert if the block is unknown
-        uint idx = _findIndex(_blockMerkleRoot, _height);
+        uint _idx = _findIndex(_blockMerkleRoot, _height);
 
         // check not verified yet and proof time not passed
-        _checkProofCanBeProvided(_height, idx);
+        _checkProofCanBeProvided(_height, _idx);
 
         // match the stored data with provided data: parent merkle root
-        _checkStoredDataMatch(_anchor, _height, idx);
+        _checkStoredDataMatch(_anchor, _height, _idx);
 
         // check the proof validity: no retarget, hash link good, enough PoW
         _checkProofValidity(_anchor, _header, _withRetarget);
 
         // mark the header as verified and give back the collateral
-        _verifyHeaderAfterDispute(_height, idx);
+        _verifyHeaderAfterDispute(_height, _idx);
 
         return true;
     }
 
-    function _checkStoredDataMatch(bytes29 _anchor, uint _height, uint idx) internal view {
+    function _checkStoredDataMatch(bytes29 _anchor, uint _height, uint _idx) internal view {
         // check parent merkle root matches
-        require(_anchor.merkleRoot() == chain[_height][idx].parentMerkleRoot, "Relay: provided anchor data not match");
+        require(_anchor.merkleRoot() == chain[_height][_idx].parentMerkleRoot, "Relay: provided anchor data not match");
     }
 
     function _checkProofValidity(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal view {
@@ -597,30 +614,30 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
     }
 
-    function _verifyHeaderAfterDispute(uint _height, uint idx) internal {
-        chain[_height][idx].verified = true;
+    function _verifyHeaderAfterDispute(uint _height, uint _idx) internal {
+        chain[_height][_idx].verified = true;
         // send relayer its collateral + reward (if disputer exists)
         Address.sendValue(
-            payable(chain[_height][idx].relayer), 
-            relayers[chain[_height][idx].relayer] + disputers[chain[_height][idx].disputer] * proofRewardPercentage / ONE_HUNDRED_PERCENT
+            payable(chain[_height][_idx].relayer), 
+            relayers[chain[_height][_idx].relayer] + disputers[chain[_height][_idx].disputer] * proofRewardPercentage / ONE_HUNDRED_PERCENT
         ); 
-        relayers[chain[_height][idx].relayer] = 0;
-        disputers[chain[_height][idx].disputer] = 0;
+        relayers[chain[_height][_idx].relayer] = 0;
+        disputers[chain[_height][_idx].disputer] = 0;
         emit BlockVerified(
             _height,
-            chain[_height][idx].merkleRoot,
-            chain[_height][idx].parentMerkleRoot,
-            chain[_height][idx].relayer,
-            chain[_height][idx].disputer
+            chain[_height][_idx].merkleRoot,
+            chain[_height][_idx].parentMerkleRoot,
+            chain[_height][_idx].relayer,
+            chain[_height][_idx].disputer
         );
     }
 
-    function _checkProofCanBeProvided(uint _height, uint idx) internal view {
+    function _checkProofCanBeProvided(uint _height, uint _idx) internal view {
         // not verified before
-        require(!chain[_height - 1][idx].verified, "Relay: header been verified before");
+        require(!chain[_height - 1][_idx].verified, "Relay: header been verified before");
         // proof time is not passed
-        require(_disputed(_height, idx) && !_proofTimePassed(_height, idx) 
-            || !_disputed(_height, idx) , "Relay: proof time passed");
+        require(_disputed(_height, _idx) && !_proofTimePassed(_height, _idx) 
+            || !_disputed(_height, _idx) , "Relay: proof time passed");
     }
 
     /// @notice                 Checks the size of addHeader inputs 
@@ -709,18 +726,18 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return (submissionGasUsed * gasPrice * (ONE_HUNDRED_PERCENT + relayerPercentageFee) * epochLength) / lastEpochQueries / ONE_HUNDRED_PERCENT;
     }
 
-    function _verifyHeader(uint _height, uint idx) internal {
-        chain[_height][idx].verified = true;
+    function _verifyHeader(uint _height, uint _idx) internal {
+        chain[_height][_idx].verified = true;
         // send back the collateral
-        Address.sendValue(payable(chain[_height][idx].relayer), relayers[chain[_height][idx].relayer]);
-        relayers[chain[_height][idx].relayer] = 0;
+        Address.sendValue(payable(chain[_height][_idx].relayer), relayers[chain[_height][_idx].relayer]);
+        relayers[chain[_height][_idx].relayer] = 0;
 
         emit BlockVerified(
             _height,
-            chain[_height][idx].merkleRoot,
-            chain[_height][idx].parentMerkleRoot,
-            chain[_height][idx].relayer,
-            chain[_height][idx].disputer
+            chain[_height][_idx].merkleRoot,
+            chain[_height][_idx].parentMerkleRoot,
+            chain[_height][_idx].relayer,
+            chain[_height][_idx].disputer
         );
     }
 
@@ -756,17 +773,17 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // find the previous header
         // todo test: when no prev block exists, and when two exist,also check block.timestamp is correct and
         // does not have a huge error
-        uint idx = _findIndex(_anchorMerkleRoot, _anchorHeight);
-        require(idx < chain[_anchorHeight].length, "Relay: anchor doesn't exist");
+        uint _idx = _findIndex(_anchorMerkleRoot, _anchorHeight);
+        require(_idx < chain[_anchorHeight].length, "Relay: anchor doesn't exist");
 
         // check if a previous height block gets verified
-        if (!_disputed(_anchorHeight, idx)) {
-            require(_disputeTimePassed(_anchorHeight, idx), "Relay: previous block not verified yet");
-            if (!chain[_anchorHeight][idx].verified) {
-                _verifyHeader(_anchorHeight, idx);
+        if (!_disputed(_anchorHeight, _idx)) {
+            require(_disputeTimePassed(_anchorHeight, _idx), "Relay: previous block not verified yet");
+            if (!chain[_anchorHeight][_idx].verified) {
+                _verifyHeader(_anchorHeight, _idx);
             }
         }
-        require(chain[_anchorHeight][idx].verified, "Relay: previous block not verified");
+        require(chain[_anchorHeight][_idx].verified, "Relay: previous block not verified");
 
         // check if any block gets finalized
         if(_anchorHeight > lastVerifiedHeight){
@@ -783,16 +800,16 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    function _disputed(uint _height, uint idx) internal view returns (bool) {
-        return (chain[_height][idx].disputer == address(0)) ? false : true;
+    function _disputed(uint _height, uint _idx) internal view returns (bool) {
+        return (chain[_height][_idx].disputer == address(0)) ? false : true;
     }
 
-    function _disputeTimePassed(uint _height, uint idx) internal view returns (bool) {
-        return (block.timestamp - chain[_height][idx].startDisputeTime >= disputeTime) ? true : false;
+    function _disputeTimePassed(uint _height, uint _idx) internal view returns (bool) {
+        return (block.timestamp - chain[_height][_idx].startDisputeTime >= disputeTime) ? true : false;
     }
     
-    function _proofTimePassed(uint _height, uint idx) internal view returns (bool) {
-        return (block.timestamp - chain[_height][idx].startProofTime >= proofTime) ? true : false;
+    function _proofTimePassed(uint _height, uint _idx) internal view returns (bool) {
+        return (block.timestamp - chain[_height][_idx].startProofTime >= proofTime) ? true : false;
     }
 
     /// @notice                     Sends reward and compensation to the relayer
@@ -866,13 +883,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     function _pruneChain() internal {
         // Make sure that we have at least finalizationParameter blocks on relay
         if ((lastVerifiedHeight - initialHeight) >= finalizationParameter){
-            uint idx = finalizationParameter;
+            uint _idx = finalizationParameter;
             uint currentHeight = lastVerifiedHeight;
             uint stableIdx = 0;
-            while (idx > 0) {
+            while (_idx > 0) {
                 bytes32 parentMerkleRoot = chain[currentHeight][stableIdx].parentMerkleRoot;
                 stableIdx = _findIndex(parentMerkleRoot, currentHeight-1);
-                idx--;
+                _idx--;
                 currentHeight--;
             }
             // Keep the finalized block header and delete rest of headers
@@ -918,13 +935,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @dev                        The first header is the one that has gotten finalized
     /// @param  _height             The height of the new block header
     function _pruneHeight(uint _height, uint _stableIdx) internal {
-        uint idx = chain[_height].length - 1;
-        while(idx > 0){
-            if(idx != _stableIdx) {
-                blockHeight[chain[_height][idx].merkleRoot] = 0;
+        uint _idx = chain[_height].length - 1;
+        while(_idx > 0){
+            if(_idx != _stableIdx) {
+                blockHeight[chain[_height][_idx].merkleRoot] = 0;
             }
             chain[_height].pop();
-            idx -= 1;
+            _idx -= 1;
         }
     }
 }
