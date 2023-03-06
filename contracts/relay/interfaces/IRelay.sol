@@ -8,7 +8,6 @@ interface IRelay {
     /// @dev                        If the block data provided by the Relayer is not correct,
     ///                             it's collateral might get slashed
     /// @param merkleRoot          	Merkle root of the txs in the block
-    /// @param parentMerkleRoot     Merkle root of the txs in the parent block
     /// @param relayer       	    Address of relayer who submitted the block data
     /// @param gasPrice             Gas price of tx that relayer submitted the block data
     /// @param verified             Whether the correctness of the block data is verified or not
@@ -17,7 +16,6 @@ interface IRelay {
     /// @param disputer             The address that disputed the data of this block
     struct blockData {
         bytes32 merkleRoot;
-        bytes32 parentMerkleRoot;
         address relayer;
         uint gasPrice;
         bool verified;

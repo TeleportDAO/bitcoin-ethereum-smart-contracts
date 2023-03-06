@@ -42,23 +42,24 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override proofRewardPercentage;
 
     // Private and internal variables
-    mapping(uint => blockData[]) private chain; // height => list of block headers
-    mapping(bytes32 => bytes32) internal previousBlock; // block header hash => parent header hash
-    mapping(bytes32 => uint256) internal blockHeight; // block header hash => block height
+    mapping(uint => blockData[]) private chain; // height => list of block data
+    mapping(bytes32 => bytes32) internal previousBlock; // block Merkle root => parent Merkle root
+    mapping(bytes32 => uint256) internal blockHeight; // block Merkle root => block height
     mapping(address => uint) internal relayers; // relayer address => locked collateral
     mapping(address => uint) internal disputers; // disputer address => locked collateral
+
+    // todo delete previousBlock[] of the blocks that has gotten finalized to save gas
+    // but also add a bool to save submission of a block to prevent replicas
 
     /// @notice                   Gives a starting point for the relay
     /// @param  _genesisHeader    The starting header
     /// @param  _height           The starting height
     /// @param  _periodStart      The Merkle root of the first header in the genesis epoch
-    /// @param  _parentMerkleRoot The Merkle root of the genesis header's parent
     /// @param  _TeleportDAOToken The address of the TeleportDAO ERC20 token contract
     constructor(
         bytes memory _genesisHeader,
         uint256 _height,
         bytes32 _periodStart,
-        bytes32 _parentMerkleRoot,
         address _TeleportDAOToken
     ) {
         // Adds the initial block header to the chain
@@ -68,7 +69,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes32 _genesisMerkleRoot = _genesisView.merkleRoot();
         relayGenesisMerkleRoot = _genesisMerkleRoot;
         blockData memory newblockData;
-        newblockData.parentMerkleRoot = _parentMerkleRoot;
         newblockData.merkleRoot = _genesisView.merkleRoot();
         newblockData.relayer = _msgSender();
         newblockData.gasPrice = 0;
@@ -582,7 +582,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     function _checkStoredDataMatch(bytes29 _anchor, uint _height, uint _idx) internal view {
         // check parent merkle root matches
-        require(_anchor.merkleRoot() == chain[_height][_idx].parentMerkleRoot, "Relay: provided anchor data not match");
+        require(_anchor.merkleRoot() == previousBlock[chain[_height][_idx].merkleRoot], "Relay: provided anchor data not match");
     }
 
     function _checkProofValidity(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal view {
@@ -626,7 +626,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         emit BlockVerified(
             _height,
             chain[_height][_idx].merkleRoot,
-            chain[_height][_idx].parentMerkleRoot,
+            previousBlock[chain[_height][_idx].merkleRoot],
             chain[_height][_idx].relayer,
             chain[_height][_idx].disputer
         );
@@ -735,7 +735,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         emit BlockVerified(
             _height,
             chain[_height][_idx].merkleRoot,
-            chain[_height][_idx].parentMerkleRoot,
+            previousBlock[chain[_height][_idx].merkleRoot],
             chain[_height][_idx].relayer,
             chain[_height][_idx].disputer
         );
@@ -795,7 +795,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         previousBlock[_blockMerkleRoot] = _anchorMerkleRoot;
         blockHeight[_blockMerkleRoot] = _height;
         emit BlockAdded(_height, _blockMerkleRoot, _anchorMerkleRoot, _msgSender());
-        _addToChain(_anchorMerkleRoot, _blockMerkleRoot, _height);
+        _addToChain(_blockMerkleRoot, _height);
         
         return true;
     }
@@ -852,13 +852,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice                     Adds a header to the chain
-    /// @param  _anchorMerkleRoot   The Merkle root of the parent of the new block's txs
     /// @param  _blockMerkleRoot    The Merkle root of the new block's txs
     /// @param  _height             The height of the new block 
-    function _addToChain(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot, uint _height) internal {
+    function _addToChain(bytes32 _blockMerkleRoot, uint _height) internal {
         // Prevent relayers to submit too old block headers
         blockData memory newblockData;
-        newblockData.parentMerkleRoot = _anchorMerkleRoot;
         newblockData.merkleRoot = _blockMerkleRoot;
         newblockData.relayer = _msgSender();
         newblockData.gasPrice = tx.gasprice;
@@ -887,7 +885,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             uint currentHeight = lastVerifiedHeight;
             uint stableIdx = 0;
             while (_idx > 0) {
-                bytes32 parentMerkleRoot = chain[currentHeight][stableIdx].parentMerkleRoot;
+                bytes32 parentMerkleRoot = previousBlock[chain[currentHeight][stableIdx].merkleRoot];
                 stableIdx = _findIndex(parentMerkleRoot, currentHeight-1);
                 _idx--;
                 currentHeight--;
@@ -909,7 +907,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             emit BlockFinalized(
                 currentHeight,
                 chain[currentHeight][0].merkleRoot,
-                chain[currentHeight][0].parentMerkleRoot,
+                previousBlock[chain[currentHeight][0].merkleRoot],
                 chain[currentHeight][0].relayer,
                 rewardAmountTNT,
                 rewardAmountTDT
