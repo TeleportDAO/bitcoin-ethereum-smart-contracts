@@ -74,9 +74,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         newblockData.gasPrice = 0;
         newblockData.verified = true;
         chain[_height].push(newblockData);
-        require(
-            _periodStart & bytes32(0x0000000000000000000000000000000000000000000000000000000000ffffff) == bytes32(0),
-            "Period start hash does not have work. Hint: wrong byte order?");
         blockHeight[_genesisMerkleRoot] = _height;
         blockHeight[_periodStart] = _height - (_height % BitcoinHelper.RETARGET_PERIOD_BLOCKS);
 
