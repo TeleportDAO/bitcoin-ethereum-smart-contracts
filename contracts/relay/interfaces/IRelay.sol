@@ -5,17 +5,19 @@ interface IRelay {
     // Structures
 
     /// @notice                 	Structure for recording block header
-    /// @dev                        If the block header provided by the Relayer is not correct,
+    /// @dev                        If the block data provided by the Relayer is not correct,
     ///                             it's collateral might get slashed
-    /// @param selfHash             Hash of block header
-    /// @param parentHash          	Hash of parent block header
-    /// @param merkleRoot       	Merkle root of transactions in the block
-    /// @param relayer              Address of relayer who submitted the block header
-    /// @param gasPrice             Gas price of tx that relayer submitted the block header
-    struct blockHeader {
-        bytes32 selfHash;
-        bytes32 parentHash;
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param parentMerkleRoot     Merkle root of the txs in the parent block
+    /// @param relayer       	    Address of relayer who submitted the block header
+    /// @param gasPrice             Gas price of tx that relayer submitted the block data
+    /// @param verified             Whether the correctness of the block data is verified or not
+    /// @param startDisputeTime     When timer starts for submitting a dispute
+    /// @param startProofTime       When timer starts for providing the block proof
+    /// @param disputer             The address that disputed the data of this block
+    struct blockData {
         bytes32 merkleRoot;
+        bytes32 parentMerkleRoot;
         address relayer;
         uint gasPrice;
         bool verified;
@@ -24,33 +26,44 @@ interface IRelay {
         address disputer;
     }
 
-    // todo all fn comments
-
     // Events
 
     /// @notice                     Emits when a block header is added
     /// @param height               Height of submitted header
-    /// @param selfHash             Hash of submitted header
-    /// @param parentHash           Parent hash of submitted header
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param parentMerkleRoot     Merkle root of the txs in the parent block
     /// @param relayer              Address of relayer who submitted the block header
     event BlockAdded(
         uint indexed height,
-        bytes32 selfHash,
-        bytes32 indexed parentHash,
+        bytes32 merkleRoot,
+        bytes32 indexed parentMerkleRoot,
         address indexed relayer
+    );
+
+    /// @notice                     Emits when a block header is added
+    /// @param height               Height of submitted header
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param parentMerkleRoot     Merkle root of the txs in the parent block
+    /// @param relayer              Address of relayer who submitted the block header
+    event BlockVerified(
+        uint indexed height,
+        bytes32 merkleRoot,
+        bytes32 indexed parentMerkleRoot,
+        address indexed relayer,
+        address disputer
     );
 
     /// @notice                     Emits when a block header gets finalized
     /// @param height               Height of the header
-    /// @param selfHash             Hash of the header
-    /// @param parentHash           Parent hash of the header
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param parentMerkleRoot     Merkle root of the txs in the parent block
     /// @param relayer              Address of relayer who submitted the block header
     /// @param rewardAmountTNT      Amount of reward that the relayer receives in target native token
     /// @param rewardAmountTDT      Amount of reward that the relayer receives in TDT
     event BlockFinalized(
         uint indexed height,
-        bytes32 selfHash,
-        bytes32 parentHash,
+        bytes32 merkleRoot,
+        bytes32 parentMerkleRoot,
         address indexed relayer,
         uint rewardAmountTNT,
         uint rewardAmountTDT
@@ -97,7 +110,7 @@ interface IRelay {
 
     // Read-only functions
 
-    function relayGenesisHash() external view returns (bytes32);
+    function relayGenesisMerkleRoot() external view returns (bytes32);
 
     function initialHeight() external view returns(uint);
 
@@ -119,9 +132,9 @@ interface IRelay {
 
     function submissionGasUsed() external view returns(uint);
 
-    function getBlockHeaderHash(uint height, uint index) external view returns(bytes32);
+    function getBlockMerkleRoot(uint height, uint index) external view returns(bytes32);
 
-    function getBlockHeaderFee(uint _height, uint _index) external view returns(uint);
+    function getBlockUsageFee(uint _height, uint _index) external view returns(uint);
 
     function getNumberOfSubmittedHeaders(uint height) external view returns (uint);
 
@@ -188,15 +201,15 @@ interface IRelay {
         uint index
     ) external payable returns (bool);
 
-    function addHeader(bytes32 _anchorHash, bytes calldata _header) external payable returns (bool);
+    function addBlock(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot) external payable returns (bool);
 
-    function disputeHeader(bytes32 _headerHash) external payable returns (bool);
+    function disputeBlock(bytes32 _blockMerkleRoot) external payable returns (bool);
 
-    function getDisputeReward(bytes32 _headerHash) external returns (bool);
+    function getDisputeReward(bytes32 _blockMerkleRoot) external returns (bool);
 
-    function provideHeaderProof(bytes calldata _anchor, bytes calldata _header) external returns (bool);
+    function provideProof(bytes calldata _anchor, bytes calldata _header) external returns (bool);
 
-    function provideHeaderProofWithRetarget(
+    function provideProofWithRetarget(
         bytes calldata _oldPeriodStartHeader,
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header

@@ -35,14 +35,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override disputeTime;
     uint public override proofTime;
     address public override TeleportDAOToken;
-    bytes32 public override relayGenesisHash; // Initial block header of relay
+    bytes32 public override relayGenesisMerkleRoot; // Initial block header of relay
     uint public override minCollateralRelayer;
     uint public override minCollateralDisputer;
     uint public override disputeRewardPercentage;
     uint public override proofRewardPercentage;
 
     // Private and internal variables
-    mapping(uint => blockHeader[]) private chain; // height => list of block headers
+    mapping(uint => blockData[]) private chain; // height => list of block headers
     mapping(bytes32 => bytes32) internal previousBlock; // block header hash => parent header hash
     mapping(bytes32 => uint256) internal blockHeight; // block header hash => block height
     mapping(address => uint) internal relayers; // relayer address => locked collateral
@@ -51,36 +51,37 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice                   Gives a starting point for the relay
     /// @param  _genesisHeader    The starting header
     /// @param  _height           The starting height
-    /// @param  _periodStart      The hash of the first header in the genesis epoch
+    /// @param  _periodStart      The Merkle root of the first header in the genesis epoch
+    /// @param  _parentMerkleRoot The Merkle root of the genesis header's parent
     /// @param  _TeleportDAOToken The address of the TeleportDAO ERC20 token contract
     constructor(
         bytes memory _genesisHeader,
         uint256 _height,
         bytes32 _periodStart,
+        bytes32 _parentMerkleRoot,
         address _TeleportDAOToken
     ) {
         // Adds the initial block header to the chain
         bytes29 _genesisView = _genesisHeader.ref(0).tryAsHeader();
         require(_genesisView.notNull(), "Relay: stop being dumb");
         // genesis header and period start can be same
-        bytes32 _genesisHash = _genesisView.hash256();
-        relayGenesisHash = _genesisHash;
-        blockHeader memory newBlockHeader;
-        newBlockHeader.selfHash = _genesisHash;
-        newBlockHeader.parentHash = _genesisView.parent();
-        newBlockHeader.merkleRoot = _genesisView.merkleRoot();
-        newBlockHeader.relayer = _msgSender();
-        newBlockHeader.gasPrice = 0;
-        newBlockHeader.verified = true;
-        chain[_height].push(newBlockHeader);
+        bytes32 _genesisMerkleRoot = _genesisView.merkleRoot();
+        relayGenesisMerkleRoot = _genesisMerkleRoot;
+        blockData memory newblockData;
+        newblockData.parentMerkleRoot = _parentMerkleRoot;
+        newblockData.merkleRoot = _genesisView.merkleRoot();
+        newblockData.relayer = _msgSender();
+        newblockData.gasPrice = 0;
+        newblockData.verified = true;
+        chain[_height].push(newblockData);
         require(
             _periodStart & bytes32(0x0000000000000000000000000000000000000000000000000000000000ffffff) == bytes32(0),
             "Period start hash does not have work. Hint: wrong byte order?");
-        blockHeight[_genesisHash] = _height;
+        blockHeight[_genesisMerkleRoot] = _height;
         blockHeight[_periodStart] = _height - (_height % BitcoinHelper.RETARGET_PERIOD_BLOCKS);
 
         // Relay parameters
-        _setFinalizationParameter(3);
+        _setFinalizationParameter(3); // todo change to 5
         initialHeight = _height;
         lastVerifiedHeight = _height;
         
@@ -90,7 +91,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _setBaseQueries(epochLength);
         lastEpochQueries = baseQueries;
         currentEpochQueries = 0;
-        _setSubmissionGasUsed(300000); // in wei
+        _setSubmissionGasUsed(300000); // in wei // todo compute new value
     }
 
     function renounceOwnership() public virtual override onlyOwner {}
@@ -111,15 +112,15 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @param  _height     The height of the desired block header
     /// @param  _index      The index of the desired block header in that height
     /// @return             Block header's hash
-    function getBlockHeaderHash (uint _height, uint _index) external view override returns(bytes32) {
-        return chain[_height][_index].selfHash;
-    }
+    function getBlockMerkleRoot (uint _height, uint _index) external view override returns(bytes32) {
+        return chain[_height][_index].merkleRoot;
+    } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
 
     /// @notice             Getter for a specific block header's fee price for a query
     /// @param  _height     The height of the desired block header
     /// @param  _index      The index of the desired block header in that height
     /// @return             Block header's fee price for a query
-    function getBlockHeaderFee (uint _height, uint _index) external view override returns(uint) {
+    function getBlockUsageFee (uint _height, uint _index) external view override returns(uint) {
         return _calculateFee(chain[_height][_index].gasPrice);
     }
 
@@ -407,28 +408,28 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
         
         // Check the inclusion of the transaction
-        bytes32 _merkleRoot = chain[_blockHeight][0].merkleRoot;
         bytes29 intermediateNodes = _intermediateNodes.ref(0).tryAsMerkleArray(); // Check for errors if any
-        return BitcoinHelper.prove(_txid, _merkleRoot, intermediateNodes, _index);
+        return BitcoinHelper.prove(_txid, chain[_blockHeight][0].merkleRoot, intermediateNodes, _index);
     }
 
-    /// @notice             Adds header to storage
-    /// @dev                
-    /// @param  _anchorHash The header hash immediately preceeding the new chain
-    /// @param  _header     A 80-byte Bitcoin header
-    /// @return             True if successfully written, error otherwise
-    function addHeader(
-        bytes32 _anchorHash, 
-        bytes calldata _header
+    /// @notice                     Adds header to storage
+    /// @dev                        
+    /// @param  _anchorMerkleRoot   The header hash immediately preceeding the new chain
+    /// @param  _blockMerkleRoot    A 80-byte Bitcoin header
+    /// @return                     True if successfully written, error otherwise
+    function addBlock(
+        bytes32 _anchorMerkleRoot, 
+        bytes32 _blockMerkleRoot
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         // check relayer has enough available collateral
         require(msg.value >= minCollateralRelayer, "Relay: no enough collateral -- relayer");
         relayers[_msgSender()] += msg.value;
         
-        bytes29 _headerView = _header.ref(0).tryAsHeaderArray();
-        require(_headerView.notNull(), "Relay: header array length must be 80 bytes");
+        // check input lengths
+        require(_blockMerkleRoot != bytes32(0), "Relay: input should be non-zero");
+        require(_anchorMerkleRoot != bytes32(0), "Relay: input should be non-zero");
 
-        _addHeader(_anchorHash, _headerView);
+        _addBlock(_anchorMerkleRoot, _blockMerkleRoot);
 
         return true;
     }
@@ -436,10 +437,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     // todo add 2 addHeader functions of pessimistic verification for only owner in case of an emergency
     // so that we wouldn't need to wait long for a coorection
 
-    /// @notice                 Disputes an unverified block header
-    /// @param  _headerHash     Hash of the Bitcoin header to dispute
-    /// @return                 True if successfully passed, error otherwise
-    function disputeHeader(bytes32 _headerHash) external payable nonReentrant whenNotPaused override returns (bool) {
+    /// @notice                     Disputes an unverified block header
+    /// @param  _blockMerkleRoot    Hash of the Bitcoin header to dispute
+    /// @return                     True if successfully passed, error otherwise
+    function disputeBlock(bytes32 _blockMerkleRoot) external payable nonReentrant whenNotPaused override returns (bool) {
         /*
             1. check the caller is paying enough collateral
             2. check if the block header exists
@@ -450,8 +451,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         require(msg.value >= minCollateralDisputer, "Relay: no enough collateral -- disputer");
         // save collateral amount
         disputers[_msgSender()] += msg.value;
-        uint _height = _findHeight(_headerHash); // reverts if header does not exist
-        uint idx = _findIndex(_headerHash, _height);
+        uint _height = _findHeight(_blockMerkleRoot); // reverts if header does not exist
+        uint idx = _findIndex(_blockMerkleRoot, _height);
         require(chain[_height][idx].startDisputeTime + disputeTime > block.timestamp, "Relay: dispute time has passed");
         require(chain[_height][idx].disputer == address(0), "Relay: header disputed before");
 
@@ -463,15 +464,15 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     // todo think which functions should be pausible which not
 
-    function getDisputeReward(bytes32 _headerHash) external nonReentrant whenNotPaused override returns (bool) {
+    function getDisputeReward(bytes32 _blockMerkleRoot) external nonReentrant whenNotPaused override returns (bool) {
         /* 
             1. check if the block header exists
             2. check the header has been disputed
             3. check the proof time is passed
             4. check the header has not been verified
         */
-        uint _height = _findHeight(_headerHash); // reverts if header does not exist
-        uint idx = _findIndex(_headerHash, _height);
+        uint _height = _findHeight(_blockMerkleRoot); // reverts if header does not exist
+        uint idx = _findIndex(_blockMerkleRoot, _height);
         require(_disputed(_height, idx), "Relay: header not disputed");
         require(_proofTimePassed(_height, idx), "Relay: proof time not passed");
         require(!chain[_height][idx].verified, "Relay: header has been verified");
@@ -486,7 +487,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    function provideHeaderProof(
+    function provideProof(
         bytes calldata _anchor, 
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
@@ -494,11 +495,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes29 _headerView = _header.ref(0).tryAsHeaderArray();
         bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
 
-        _checkInputSizeAddHeader(_headerView, _anchorView);
+        _checkInputSizeProvideProof(_headerView, _anchorView);
         return _checkHeaderProof(_anchorView, _headerView, false);
     }
 
-    function provideHeaderProofWithRetarget(
+    function provideProofWithRetarget(
         bytes calldata _oldPeriodStartHeader,
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
@@ -506,11 +507,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes29 _oldStart = _oldPeriodStartHeader.ref(0).tryAsHeader();
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
 
-        _checkInputSizeAddHeaderWithRetarget(_oldStart, _oldEnd);
+        _checkInputSizeProvideProofWithRetarget(_oldStart, _oldEnd);
 
         // requires that both blocks are known
-        uint256 _startHeight = _findHeight(_oldStart.hash256());
-        uint256 _endHeight = _findHeight(_oldEnd.hash256());
+        uint256 _startHeight = _findHeight(_oldStart.merkleRoot());
+        uint256 _endHeight = _findHeight(_oldEnd.merkleRoot());
 
         // retargets should happen at 2016 block intervals
         require(
@@ -543,13 +544,17 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     function _checkHeaderProof(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal returns (bool) {
         // Extract basic info
-        bytes32 _currentHash = _header.hash256();
-        uint256 _height = _findHeight(_currentHash); // revert if the block is unknown
-        uint idx = _findIndex(_currentHash, _height);
+        bytes32 _blockMerkleRoot = _header.merkleRoot();
+        uint256 _height = _findHeight(_blockMerkleRoot); // revert if the block is unknown
+        uint idx = _findIndex(_blockMerkleRoot, _height);
 
+        // check not verified yet and proof time not passed
         _checkProofCanBeProvided(_height, idx);
 
-        // check the proof validity
+        // match the stored data with provided data: parent merkle root
+        _checkStoredDataMatch(_anchor, _height, idx);
+
+        // check the proof validity: no retarget, hash link good, enough PoW
         _checkProofValidity(_anchor, _header, _withRetarget);
 
         // mark the header as verified and give back the collateral
@@ -558,13 +563,17 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
+    function _checkStoredDataMatch(bytes29 _anchor, uint _height, uint idx) internal view {
+        // check parent merkle root matches
+        require(_anchor.merkleRoot() == chain[_height][idx].parentMerkleRoot, "Relay: provided anchor data not match");
+    }
+
     function _checkProofValidity(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal view {
         // extract basic info
-        bytes32 _previousHash = _anchor.hash256();
-        uint _anchorHeight = _findHeight(_previousHash); // reverts if the header doesn't exist
+        bytes32 _anchorMerkleRoot = _anchor.merkleRoot();
+        uint _anchorHeight = _findHeight(_anchorMerkleRoot); // reverts if the header doesn't exist
         uint256 _height = _anchorHeight + 1;
-        bytes32 _currentHash = _header.hash256();
-        uint256 _target = _header.indexHeaderArray(0).target();
+        uint256 _target = _header.target();
 
         // no retargetting should happen
         require(
@@ -575,15 +584,15 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // Blocks that are multiplies of 2016 should be submitted using withRetarget
         require(
             _withRetarget || _height % BitcoinHelper.RETARGET_PERIOD_BLOCKS != 0,
-            "Relay: proof should be submitted by calling provideHeaderProofWithRetarget"
+            "Relay: proof should be submitted by calling provideProofWithRetarget"
         );
 
-        // check that headers are in a coherent chain (no retargets, hash links good)
-        require(_header.target() == _target, "Relay: target changed unexpectedly");
-        require(_header.checkParent(_previousHash), "Relay: headers do not form a consistent chain");
+        // check previous block link is correct
+        require(_header.checkParent(_anchor.hash256()), "Relay: headers do not form a consistent chain");
+        
         // check that the header has sufficient work
         require(
-            TypedMemView.reverseUint256(uint256(_currentHash)) <= _target,
+            TypedMemView.reverseUint256(uint256(_header.hash256())) <= _target,
             "Relay: header work is insufficient"
         );
     }
@@ -597,6 +606,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         ); 
         relayers[chain[_height][idx].relayer] = 0;
         disputers[chain[_height][idx].disputer] = 0;
+        emit BlockVerified(
+            _height,
+            chain[_height][idx].merkleRoot,
+            chain[_height][idx].parentMerkleRoot,
+            chain[_height][idx].relayer,
+            chain[_height][idx].disputer
+        );
     }
 
     function _checkProofCanBeProvided(uint _height, uint idx) internal view {
@@ -610,7 +626,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice                 Checks the size of addHeader inputs 
     /// @param  _headerView     Input to the addHeader and ownerAddHeader functions
     /// @param  _anchorView     Input to the addHeader and ownerAddHeader functions
-    function _checkInputSizeAddHeader(bytes29 _headerView, bytes29 _anchorView) internal pure {
+    function _checkInputSizeProvideProof(bytes29 _headerView, bytes29 _anchorView) internal pure {
         require(_headerView.notNull(), "Relay: header array length must be 80 bytes");
         require(_anchorView.notNull(), "Relay: anchor must be 80 bytes");
     }
@@ -618,7 +634,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice                     Checks the size of addHeadersWithRetarget inputs 
     /// @param  _oldStart           Input to the addHeadersWithRetarget and ownerAddHeadersWithRetarget functions
     /// @param  _oldEnd             Input to the addHeadersWithRetarget and ownerAddHeadersWithRetarget functions
-    function _checkInputSizeAddHeaderWithRetarget(
+    function _checkInputSizeProvideProofWithRetarget(
         bytes29 _oldStart,
         bytes29 _oldEnd
     ) internal pure {
@@ -698,22 +714,29 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // send back the collateral
         Address.sendValue(payable(chain[_height][idx].relayer), relayers[chain[_height][idx].relayer]);
         relayers[chain[_height][idx].relayer] = 0;
+
+        emit BlockVerified(
+            _height,
+            chain[_height][idx].merkleRoot,
+            chain[_height][idx].parentMerkleRoot,
+            chain[_height][idx].relayer,
+            chain[_height][idx].disputer
+        );
     }
 
     /// @notice             Adds header to storage
     /// @dev                We do not get a block on top of an unverified block
     /// @return             True if successfully written, error otherwise
-    function _addHeader(bytes32 _anchorHash, bytes29 _header) internal returns (bool) {
+    function _addBlock(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot) internal returns (bool) {
         // Extract basic info
-        uint256 _anchorHeight = _findHeight(_anchorHash); // revert if the block is unknown
+        uint256 _anchorHeight = _findHeight(_anchorMerkleRoot); // revert if the block is unknown
         uint256 _height = _anchorHeight + 1;
-        bytes32 _currentHash = _header.hash256();
 
         /*
             0. check the height on top of the anchor is not finalized
             1. check if a previous height block gets verified
             2. check the previous block is verified
-            3. check that the blockheader is not a replica
+            3. check that the blockData is not a replica
             4. Store the block connection
             5. Store the height
             6. store the block in the chain
@@ -721,19 +744,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         require(
             _height + finalizationParameter > lastVerifiedHeight, 
-            "Relay: block headers are too old"
+            "Relay: block header is too old"
         );
 
         // The below check prevents adding a replicated block header
         require(
-            previousBlock[_currentHash] == bytes32(0),
+            previousBlock[_blockMerkleRoot] == bytes32(0),
             "Relay: the block header exists on the relay"
         );
 
         // find the previous header
         // todo test: when no prev block exists, and when two exist,also check block.timestamp is correct and
         // does not have a huge error
-        uint idx = _findIndex(_anchorHash, _anchorHeight);
+        uint idx = _findIndex(_anchorMerkleRoot, _anchorHeight);
         require(idx < chain[_anchorHeight].length, "Relay: anchor doesn't exist");
 
         // check if a previous height block gets verified
@@ -752,10 +775,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _pruneChain();
         }
 
-        previousBlock[_currentHash] = _anchorHash;
-        blockHeight[_currentHash] = _height;
-        emit BlockAdded(_height, _currentHash, _anchorHash, _msgSender());
-        _addToChain(_header, _height);
+        previousBlock[_blockMerkleRoot] = _anchorMerkleRoot;
+        blockHeight[_blockMerkleRoot] = _height;
+        emit BlockAdded(_height, _blockMerkleRoot, _anchorMerkleRoot, _msgSender());
+        _addToChain(_anchorMerkleRoot, _blockMerkleRoot, _height);
         
         return true;
     }
@@ -812,20 +835,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice                     Adds a header to the chain
-    /// @param  _header             The new block header
-    /// @param  _height             The height of the new block header
-    function _addToChain(bytes29 _header, uint _height) internal {
+    /// @param  _anchorMerkleRoot   The Merkle root of the parent of the new block's txs
+    /// @param  _blockMerkleRoot    The Merkle root of the new block's txs
+    /// @param  _height             The height of the new block 
+    function _addToChain(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot, uint _height) internal {
         // Prevent relayers to submit too old block headers
-        require(_height + finalizationParameter > lastVerifiedHeight, "Relay: block header is too old");
-        blockHeader memory newBlockHeader;
-        newBlockHeader.selfHash = _header.hash256();
-        newBlockHeader.parentHash = _header.parent();
-        newBlockHeader.merkleRoot = _header.merkleRoot();
-        newBlockHeader.relayer = _msgSender();
-        newBlockHeader.gasPrice = tx.gasprice;
-        newBlockHeader.verified = false;
-        newBlockHeader.startDisputeTime = block.timestamp;
-        chain[_height].push(newBlockHeader);
+        blockData memory newblockData;
+        newblockData.parentMerkleRoot = _anchorMerkleRoot;
+        newblockData.merkleRoot = _blockMerkleRoot;
+        newblockData.relayer = _msgSender();
+        newblockData.gasPrice = tx.gasprice;
+        newblockData.verified = false;
+        newblockData.startDisputeTime = block.timestamp;
+        chain[_height].push(newblockData);
     }
 
     /// @notice                     Reset the number of users in an epoch when a new epoch starts
@@ -848,15 +870,15 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             uint currentHeight = lastVerifiedHeight;
             uint stableIdx = 0;
             while (idx > 0) {
-                bytes32 parentHeaderHash = chain[currentHeight][stableIdx].parentHash;
-                stableIdx = _findIndex(parentHeaderHash, currentHeight-1);
+                bytes32 parentMerkleRoot = chain[currentHeight][stableIdx].parentMerkleRoot;
+                stableIdx = _findIndex(parentMerkleRoot, currentHeight-1);
                 idx--;
                 currentHeight--;
             }
             // Keep the finalized block header and delete rest of headers
             if(chain[currentHeight].length > 1){
                 if(stableIdx != 0) {
-                    blockHeight[chain[currentHeight][0].selfHash] = 0;
+                    blockHeight[chain[currentHeight][0].merkleRoot] = 0;
                     chain[currentHeight][0] = chain[currentHeight][stableIdx];
                 }
                 
@@ -869,8 +891,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
             emit BlockFinalized(
                 currentHeight,
-                chain[currentHeight][0].selfHash,
-                chain[currentHeight][0].parentHash,
+                chain[currentHeight][0].merkleRoot,
+                chain[currentHeight][0].parentMerkleRoot,
                 chain[currentHeight][0].relayer,
                 rewardAmountTNT,
                 rewardAmountTDT
@@ -883,9 +905,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @param  _headerHash         The block header hash
     /// @param  _height             The height of the block header
     /// @return                     If the header exists: its index, if not: # of headers in that height
-    function _findIndex(bytes32 _headerHash, uint _height) internal view returns(uint) {
+    function _findIndex(bytes32 _blockMerkleRoot, uint _height) internal view returns(uint) {
         for (uint256 _index = 0; _index < chain[_height].length; _index++) {
-            if(_headerHash == chain[_height][_index].selfHash) {
+            if(_blockMerkleRoot == chain[_height][_index].merkleRoot) {
                 return _index;
             }
         }
@@ -899,7 +921,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint idx = chain[_height].length - 1;
         while(idx > 0){
             if(idx != _stableIdx) {
-                blockHeight[chain[_height][idx].selfHash] = 0;
+                blockHeight[chain[_height][idx].merkleRoot] = 0;
             }
             chain[_height].pop();
             idx -= 1;
