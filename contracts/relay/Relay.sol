@@ -434,9 +434,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    // todo add 2 addHeader functions of pessimistic verification for only owner in case of an emergency
-    // so that we wouldn't need to wait long for a correction
-
     /// @notice                     Disputes an unverified block header
     /// @param  _blockMerkleRoot    Hash of the Bitcoin header to dispute
     /// @return                     True if successfully passed, error otherwise
@@ -508,7 +505,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
         // todo check it wouldn't cause a problem if block wasn't disputed before (same for with retarget)
-        bytes29 _headerView = _header.ref(0).tryAsHeaderArray();
+        bytes29 _headerView = _header.ref(0).tryAsHeader();
         bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
 
         _checkInputSizeProvideProof(_headerView, _anchorView);
@@ -522,9 +519,89 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     ) external nonReentrant whenNotPaused override returns (bool) {
         bytes29 _oldStart = _oldPeriodStartHeader.ref(0).tryAsHeader();
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
+        bytes29 _headerView = _header.ref(0).tryAsHeader();
 
-        _checkInputSizeProvideProofWithRetarget(_oldStart, _oldEnd);
+        _checkInputSizeProvideProofWithRetarget(_oldStart, _oldEnd, _headerView);
 
+        _checkRetarget(_oldStart, _oldEnd, _headerView.target());
+
+        return _checkHeaderProof(_oldEnd, _headerView, true);
+    }
+
+    /// @notice             Adds headers to storage after validating
+    /// @dev                We use this function when relay is paused
+    /// then only owner can add the new blocks, like when a fork happens
+    /// @param  _anchor     The header immediately preceeding the new chain
+    /// @param  _headers    A tightly-packed list of 80-byte Bitcoin headers
+    /// @return             True if successfully written, error otherwise
+    function ownerAddHeaders(bytes calldata _anchor, bytes calldata _headers) external nonReentrant onlyOwner override returns (bool) {
+        bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
+        bytes29 _headersView = _headers.ref(0).tryAsHeaderArray();
+
+        _checkInputSizeAddHeaders(_headersView, _anchorView);
+
+        return _ownerAddHeaders(_anchorView, _headersView, false);
+    }
+
+    /// @notice                       Adds headers to storage, performs additional validation of retarget
+    /// @dev                          Works like the other addHeadersWithRetarget; we use this function when relay is paused
+    /// then only owner can add the new blocks, like when a fork happens
+    /// @param  _oldPeriodStartHeader The first header in the difficulty period being closed
+    /// @param  _oldPeriodEndHeader   The last header in the difficulty period being closed (anchor of new headers)
+    /// @param  _headers              A tightly-packed list of 80-byte Bitcoin headers
+    /// @return                       True if successfully written, error otherwise
+    function ownerAddHeadersWithRetarget(
+        bytes calldata _oldPeriodStartHeader,
+        bytes calldata _oldPeriodEndHeader,
+        bytes calldata _headers
+    ) external nonReentrant onlyOwner override returns (bool) {
+        bytes29 _oldStart = _oldPeriodStartHeader.ref(0).tryAsHeader();
+        bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
+        bytes29 _headersView = _headers.ref(0).tryAsHeaderArray();
+        bytes29 _newStart = _headersView.indexHeaderArray(0);
+
+        _checkInputSizeAddHeaders(_oldStart, _oldEnd);
+        _checkInputSizeAddHeaders(_headersView, _newStart);
+
+        _checkRetarget(_oldStart, _oldEnd, _newStart.target());
+
+        return _ownerAddHeaders(_oldEnd, _headersView, true);
+    }
+
+    // todo emit events everywhere
+    // todo NatSpec
+
+    function _ownerAddHeaders(bytes29 _anchor, bytes29 _headers, bool _withRetarget) internal returns (bool) {
+        bytes29 _newAnchor = _anchor;
+        bytes32 _anchorMerkleRoot;
+        bytes32 _blockMerkleRoot;
+        for (uint256 i = 0; i < _headers.len() / 80; i++) {
+            bytes29 _header = _headers.indexHeaderArray(i);
+            _blockMerkleRoot = _header.merkleRoot();
+            _anchorMerkleRoot = _newAnchor.merkleRoot();
+            _addBlock(_anchorMerkleRoot, _blockMerkleRoot);
+            // Extract basic info
+            uint256 _height = _findHeight(_blockMerkleRoot); // revert if the block is unknown
+            uint _idx = _findIndex(_blockMerkleRoot, _height);
+
+            // check the proof validity: no retarget, hash link good, enough PoW
+            _checkProofValidity(_newAnchor, _header, ((i == 0) ? _withRetarget : false));
+
+            // mark the header as verified
+            chain[_height][_idx].verified = true;
+            emit BlockVerified(
+                _height,
+                _blockMerkleRoot,
+                _anchorMerkleRoot,
+                _msgSender(),
+                address(0)
+            );
+            _newAnchor = _header;
+        }
+        return true;
+    }
+
+    function _checkRetarget(bytes29 _oldStart, bytes29 _oldEnd, uint256 _actualTarget) internal view {
         // requires that both blocks are known
         uint256 _startHeight = _findHeight(_oldStart.merkleRoot());
         uint256 _endHeight = _findHeight(_oldEnd.merkleRoot());
@@ -541,8 +618,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: period header difficulties do not match");
 
         /* NB: This comparison looks weird because header nBits encoding truncates targets */
-        bytes29 _headerView = _header.ref(0).tryAsHeader(); // new start
-        uint256 _actualTarget = _headerView.target();
         uint256 _expectedTarget = BitcoinHelper.retargetAlgorithm(
             _oldStart.target(),
             _oldStart.time(),
@@ -552,12 +627,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             (_actualTarget & _expectedTarget) == _actualTarget, 
             "Relay: invalid retarget provided"
         );
-
-        return _checkHeaderProof(_oldEnd, _headerView, true);
     }
-
-    // todo emit events everywhere
-    // todo NatSpec
 
     function _checkHeaderProof(bytes29 _anchor, bytes29 _header, bool _withRetarget) internal returns (bool) {
         // Extract basic info
@@ -641,24 +711,36 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice                 Checks the size of addHeader inputs 
-    /// @param  _headerView     Input to the addHeader and ownerAddHeader functions
-    /// @param  _anchorView     Input to the addHeader and ownerAddHeader functions
-    function _checkInputSizeProvideProof(bytes29 _headerView, bytes29 _anchorView) internal pure {
-        require(_headerView.notNull(), "Relay: header array length must be 80 bytes");
-        require(_anchorView.notNull(), "Relay: anchor must be 80 bytes");
-    }
-
-    /// @notice                     Checks the size of addHeadersWithRetarget inputs 
-    /// @param  _oldStart           Input to the addHeadersWithRetarget and ownerAddHeadersWithRetarget functions
-    /// @param  _oldEnd             Input to the addHeadersWithRetarget and ownerAddHeadersWithRetarget functions
-    function _checkInputSizeProvideProofWithRetarget(
-        bytes29 _oldStart,
-        bytes29 _oldEnd
-    ) internal pure {
+    /// @param  _headerView1    Input to the provideProof functions
+    /// @param  _headerView2    Input to the provideProof functions
+    function _checkInputSizeProvideProof(bytes29 _headerView1, bytes29 _headerView2) internal pure {
         require(
-            _oldStart.notNull() && _oldEnd.notNull(),
+            _headerView1.notNull() && _headerView2.notNull(),
             "Relay: bad args. Check header and array byte lengths."
         );
+    }
+
+    /// @notice                 Checks the size of addHeader inputs 
+    /// @param  _headerView1    Input to the provideProof functions
+    /// @param  _headerView2    Input to the provideProof functions
+    /// @param  _headerView3    Input to the provideProof functions
+    function _checkInputSizeProvideProofWithRetarget(
+        bytes29 _headerView1, 
+        bytes29 _headerView2,
+        bytes29 _headerView3
+        ) internal pure {
+        require(
+            _headerView1.notNull() && _headerView2.notNull() && _headerView3.notNull(),
+            "Relay: bad args. Check header and array byte lengths."
+        );
+    }
+
+    /// @notice                 Checks the size of addHeaders inputs 
+    /// @param  _headersView    Input to the addHeaders and ownerAddHeaders functions
+    /// @param  _anchorView     Input to the addHeaders and ownerAddHeaders functions
+    function _checkInputSizeAddHeaders(bytes29 _headersView, bytes29 _anchorView) internal pure {
+        require(_headersView.notNull(), "BitcoinRelay: header array length must be divisible by 80");
+        require(_anchorView.notNull(), "BitcoinRelay: anchor must be 80 bytes");
     }
 
     /// @notice             Finds the height of a header by its hash

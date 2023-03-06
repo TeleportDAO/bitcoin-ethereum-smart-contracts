@@ -239,4 +239,12 @@ interface IRelay {
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
     ) external returns (bool);
+
+    function ownerAddHeaders(bytes calldata _anchor, bytes calldata _headers) external returns (bool);
+
+    function ownerAddHeadersWithRetarget(
+        bytes calldata _oldPeriodStartHeader,
+        bytes calldata _oldPeriodEndHeader,
+        bytes calldata _headers
+    ) external returns (bool);
 }
