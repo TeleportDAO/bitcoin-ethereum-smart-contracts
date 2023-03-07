@@ -107,13 +107,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    // /// @notice             Getter for a specific block header's hash in the stored chain
-    // /// @param  _height     The height of the desired block header
-    // /// @param  _index      The index of the desired block header in that height
-    // /// @return             Block header's hash
-    // function getBlockMerkleRoot (uint _height, uint _index) external view override returns(bytes32) {
-    //     return chain[_height][_index].merkleRoot;
-    // } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
+    /// @notice             Getter for a specific block header's hash in the stored chain
+    /// @param  _height     The height of the desired block header
+    /// @param  _index      The index of the desired block header in that height
+    /// @return             Block header's hash
+    function getBlockMerkleRoot (uint _height, uint _index) external view override returns(bytes32) {
+        return chain[_height][_index].merkleRoot;
+    } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
 
     /// @notice             Getter for a specific block header's fee price for a query
     /// @param  _height     The height of the desired block header

@@ -184,6 +184,8 @@ interface IRelay {
 
     function disputeTime() external view returns(uint);
 
+    function minDisputeTime() external view returns(uint);
+
     function proofTime() external view returns(uint);
 
     function disputeRewardPercentage() external view returns(uint);
