@@ -33,6 +33,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override currentEpochQueries;
     uint public override lastEpochQueries;
     uint public override disputeTime;
+    uint public override minDisputeTime;
     uint public override proofTime;
     address public override TeleportDAOToken;
     bytes32 public override relayGenesisMerkleRoot; // Initial block header of relay
@@ -79,6 +80,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Relay parameters
         _setFinalizationParameter(3); // todo change to 5
+        _setMinDisputeTime(10); // todo change to 5 mins
         initialHeight = _height;
         lastVerifiedHeight = _height;
         
@@ -105,13 +107,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    /// @notice             Getter for a specific block header's hash in the stored chain
-    /// @param  _height     The height of the desired block header
-    /// @param  _index      The index of the desired block header in that height
-    /// @return             Block header's hash
-    function getBlockMerkleRoot (uint _height, uint _index) external view override returns(bytes32) {
-        return chain[_height][_index].merkleRoot;
-    } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
+    // /// @notice             Getter for a specific block header's hash in the stored chain
+    // /// @param  _height     The height of the desired block header
+    // /// @param  _index      The index of the desired block header in that height
+    // /// @return             Block header's hash
+    // function getBlockMerkleRoot (uint _height, uint _index) external view override returns(bytes32) {
+    //     return chain[_height][_index].merkleRoot;
+    // } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
 
     /// @notice             Getter for a specific block header's fee price for a query
     /// @param  _height     The height of the desired block header
@@ -275,6 +277,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         finalizationParameter = _finalizationParameter;
     }
 
+    function _setMinDisputeTime(uint _minDisputeTime) private {
+        emit NewMinDisputeTime(minDisputeTime, _minDisputeTime);
+        minDisputeTime = _minDisputeTime;
+    }
+
     /// @notice                             Internal setter for relayerPercentageFee
     /// @dev                                This is updated when we want to change the Relayer reward
     /// @param _relayerPercentageFee               Ratio > 1 that determines percentage of reward to the Relayer
@@ -330,6 +337,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @dev                                This is updated when duration in which a block can be disputed changes
     /// @param _disputeTime                 The duration in which a block can be disputed after getting submitted
     function _setDisputeTime(uint _disputeTime) private {
+        require(_disputeTime >= minDisputeTime);
         emit NewDisputeTime(disputeTime, _disputeTime);
         disputeTime = _disputeTime;
     }
@@ -434,7 +442,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice                     Disputes an unverified block header
     /// @param  _blockMerkleRoot    Hash of the Bitcoin header to dispute
     /// @return                     True if successfully passed, error otherwise
-    function disputeBlock(bytes32 _blockMerkleRoot) external payable nonReentrant whenNotPaused override returns (bool) {
+    function disputeBlock(bytes32 _blockMerkleRoot) external payable nonReentrant override returns (bool) {
         /*
             1. check the caller is paying enough collateral
             2. check if the block header exists

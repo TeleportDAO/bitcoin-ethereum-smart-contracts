@@ -133,6 +133,9 @@ interface IRelay {
     /// @notice                     Emits when changes made to proof reward percentage
     event NewProofRewardPercentage(uint oldProofRewardPercentage, uint newProofRewardPercentage);
 
+    /// @notice                     Emits when changes made to min dispute time
+    event NewMinDisputeTime(uint oldMinDisputeTime, uint newMinDisputeTime);
+
     // Read-only functions
 
     function relayGenesisMerkleRoot() external view returns (bytes32);
