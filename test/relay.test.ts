@@ -46,6 +46,8 @@ describe("Relay", async () => {
     let ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
     let bitcoinRESTAPI: any;
     let merkleRoots: any;
+    let minDisputeTime = 10;
+    let minProofTime = 10;
 
     let mockTDT: MockContract;
 
@@ -107,6 +109,9 @@ describe("Relay", async () => {
             ZERO_ADDRESS
         );
 
+        relay1.setProofTime(minProofTime);
+        relay1.setDisputeTime(minDisputeTime);
+
         return relay1;
     };
 
@@ -130,6 +135,9 @@ describe("Relay", async () => {
             _periodStart,
             ZERO_ADDRESS
         );
+
+        relayTest.setProofTime(minProofTime);
+        relayTest.setDisputeTime(minDisputeTime);
 
         return relayTest;
     };
@@ -785,147 +793,145 @@ describe("Relay", async () => {
                 orphan_562630.merkle_root,
                 ZERO_ADDRESS
             );
-            relay2.setProofTime(10);
-            relay2.setDisputeTime(10);
         });
 
-        // it('views the hash correctly', async () => {
-        //     const header = chain[0].merkle_root;
-        //     expect(
-        //         await relay2.addBlock(genesis.merkle_root, header)
-        //     ).to.emit(relay2, "BlockAdded")
-        //     delay(10);
-        //     expect(
-        //         await relay2.getBlockMerkleRoot(chain[0].height, 0)
-        //     ).to.equal(chain[0].merkle_root)
-        // });
+        it('views the merkle root correctly', async () => {
+            expect(
+                await relay2.addBlock(genesis.merkle_root, chain[0].merkle_root)
+            ).to.emit(relay2, "BlockAdded")
+            expect(
+                await relay2.getBlockMerkleRoot(chain[0].height, 0)
+            ).to.equal(chain[0].merkle_root)
+        });
 
     });
 
-    // describe('## Setters', async () => {
-    //     /* eslint-disable-next-line camelcase */
-    //     const { genesis, orphan_562630 } = REGULAR_CHAIN;
-    //     let relaySigner2: any;
+    describe('## Setters', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { genesis, orphan_562630 } = REGULAR_CHAIN;
+        let relaySigner2: any;
 
-    //     beforeEach(async () => {
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
-    //             genesis.height,
-    //             orphan_562630.digest_le,
-    //             ZERO_ADDRESS
-    //         );
-    //         relaySigner2 = await relay2.connect(signer2);
-    //     });
+        beforeEach(async () => {
+            relay2 = await relayFactory.deploy(
+                genesis.hex,
+                genesis.height,
+                orphan_562630.merkle_root,
+                ZERO_ADDRESS
+            );
+            relaySigner2 = await relay2.connect(signer2);
+        });
 
-    //     it('#setRewardAmountInTDT', async () => {
-    //         await expect(
-    //             await relay2.setRewardAmountInTDT(5)
-    //         ).to.emit(
-    //             relay2, "NewRewardAmountInTDT"
-    //         ).withArgs(0, 5);
+        it('#setRewardAmountInTDT', async () => {
+            await expect(
+                await relay2.setRewardAmountInTDT(5)
+            ).to.emit(
+                relay2, "NewRewardAmountInTDT"
+            ).withArgs(0, 5);
 
-    //         expect(
-    //             await relay2.rewardAmountInTDT()
-    //         ).to.equal(5)
-    //     });
+            expect(
+                await relay2.rewardAmountInTDT()
+            ).to.equal(5)
+        });
 
-    //     it('setRewardAmountInTDT owner check', async () => {
-    //         await expect(
-    //             relaySigner2.setRewardAmountInTDT(5)
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('setRewardAmountInTDT owner check', async () => {
+            await expect(
+                relaySigner2.setRewardAmountInTDT(5)
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
 
-    //     it('#setFinalizationParameter', async () => {
-    //         await expect(
-    //             await relay2.setFinalizationParameter(6)
-    //         ).to.emit(
-    //             relay2, "NewFinalizationParameter"
-    //         ).withArgs(3, 6);
+        it('#setFinalizationParameter', async () => {
+            await expect(
+                await relay2.setFinalizationParameter(6)
+            ).to.emit(
+                relay2, "NewFinalizationParameter"
+            ).withArgs(3, 6);
 
-    //         expect(
-    //             await relay2.finalizationParameter()
-    //         ).to.equal(6)
-    //     });
+            expect(
+                await relay2.finalizationParameter()
+            ).to.equal(6)
+        });
 
-    //     it('setFinalizationParameter owner check', async () => {
-    //         await expect(
-    //             relaySigner2.setFinalizationParameter(6)
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('setFinalizationParameter owner check', async () => {
+            await expect(
+                relaySigner2.setFinalizationParameter(6)
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
 
-    //     it('#setRelayerPercentageFee', async () => {
-    //         await expect(
-    //             await relay2.setRelayerPercentageFee(10)
-    //         ).to.emit(
-    //             relay2, "NewRelayerPercentageFee"
-    //         ).withArgs(500, 10);
+        it('#setRelayerPercentageFee', async () => {
+            await expect(
+                await relay2.setRelayerPercentageFee(10)
+            ).to.emit(
+                relay2, "NewRelayerPercentageFee"
+            ).withArgs(500, 10);
 
-    //         expect(
-    //             await relay2.relayerPercentageFee()
-    //         ).to.equal(10)
-    //     });
+            expect(
+                await relay2.relayerPercentageFee()
+            ).to.equal(10)
+        });
 
-    //     it('setRelayerPercentageFee owner check', async () => {
-    //         await expect(
-    //             relaySigner2.setRelayerPercentageFee(5)
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('setRelayerPercentageFee owner check', async () => {
+            await expect(
+                relaySigner2.setRelayerPercentageFee(5)
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
 
-    //     it('#setEpochLength', async () => {
-    //         await expect(
-    //             await relay2.setEpochLength(10)
-    //         ).to.emit(
-    //             relay2, "NewEpochLength"
-    //         ).withArgs(2016, 10);
+        it('#setEpochLength', async () => {
+            await expect(
+                await relay2.setEpochLength(10)
+            ).to.emit(
+                relay2, "NewEpochLength"
+            ).withArgs(2016, 10);
 
-    //         expect(
-    //             await relay2.epochLength()
-    //         ).to.equal(10)
-    //     });
+            expect(
+                await relay2.epochLength()
+            ).to.equal(10)
+        });
 
-    //     it('setEpochLength owner check', async () => {
-    //         await expect(
-    //             relaySigner2.setEpochLength(10)
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('setEpochLength owner check', async () => {
+            await expect(
+                relaySigner2.setEpochLength(10)
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
 
-    //     it('#setBaseQueries', async () => {
-    //         await expect(
-    //             await relay2.setBaseQueries(100)
-    //         ).to.emit(
-    //             relay2, "NewBaseQueries"
-    //         ).withArgs(2016, 100);
+        it('#setBaseQueries', async () => {
+            await expect(
+                await relay2.setBaseQueries(100)
+            ).to.emit(
+                relay2, "NewBaseQueries"
+            ).withArgs(2016, 100);
 
-    //         expect(
-    //             await relay2.baseQueries()
-    //         ).to.equal(100)
-    //     });
+            expect(
+                await relay2.baseQueries()
+            ).to.equal(100)
+        });
 
-    //     it('setBaseQueries owner check', async () => {
-    //         await expect(
-    //             relaySigner2.setBaseQueries(100)
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('setBaseQueries owner check', async () => {
+            await expect(
+                relaySigner2.setBaseQueries(100)
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
 
-    //     it('#setSubmissionGasUsed', async () => {
-    //         await expect(
-    //             await relay2.setSubmissionGasUsed(100)
-    //         ).to.emit(
-    //             relay2, "NewSubmissionGasUsed"
-    //         ).withArgs(300000, 100);
+        it('#setSubmissionGasUsed', async () => {
+            await expect(
+                await relay2.setSubmissionGasUsed(100)
+            ).to.emit(
+                relay2, "NewSubmissionGasUsed"
+            ).withArgs(300000, 100);
             
-    //         expect(
-    //             await relay2.submissionGasUsed()
-    //         ).to.equal(100)
-    //     });
+            expect(
+                await relay2.submissionGasUsed()
+            ).to.equal(100)
+        });
 
-    //     it('setSubmissionGasUsed owner check', async () => {
-    //         await expect(
-    //             relaySigner2.setSubmissionGasUsed(100)
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('setSubmissionGasUsed owner check', async () => {
+            await expect(
+                relaySigner2.setSubmissionGasUsed(100)
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
 
-    // });
+        // todo: no tests for setTeleportDAOToken, setDisputeTime, setProofTime, setMinCollateralRelayer,
+        // setMinCollateralDisputer, setDisputeRewardPercentage, setProofRewardPercentage yet
+    });
 
     // describe('#addHeaders', async () => {
     //     /* eslint-disable-next-line camelcase */
