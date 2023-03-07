@@ -723,6 +723,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     function _verifyHeaderAfterDispute(uint _height, uint _idx) internal {
         chain[_height][_idx].verified = true;
+        if (lastVerifiedHeight < _height) {
+            lastVerifiedHeight += 1;
+        }
         // send relayer its collateral + reward (if disputer exists)
         Address.sendValue(
             payable(chain[_height][_idx].relayer), 
