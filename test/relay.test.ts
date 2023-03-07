@@ -748,56 +748,59 @@ describe("Relay", async () => {
         });
     });
 
-    // describe('#unpauseRelay', async () => {
-    //     /* eslint-disable-next-line camelcase */
-    //     const { genesis, orphan_562630 } = REGULAR_CHAIN;
+    describe('#unpauseRelay', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { genesis, orphan_562630 } = REGULAR_CHAIN;
 
-    //     beforeEach(async () => {
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
-    //             genesis.height,
-    //             orphan_562630.digest_le,
-    //             ZERO_ADDRESS
-    //         );
-    //     });
+        beforeEach(async () => {
+            relay2 = await relayFactory.deploy(
+                genesis.hex,
+                genesis.height,
+                orphan_562630.merkle_root,
+                ZERO_ADDRESS
+            );
+        });
 
-    //     it('errors if the caller is not owner', async () => {
+        it('errors if the caller is not owner', async () => {
 
-    //         let relaySigner1 = await relay2.connect(signer1);
-    //         let relayDeployer = await relay2.connect(deployer);
-    //         // owner pauses the relay1
-    //         await relayDeployer.pauseRelay();
+            let relaySigner1 = await relay2.connect(signer1);
+            let relayDeployer = await relay2.connect(deployer);
+            // owner pauses the relay1
+            await relayDeployer.pauseRelay();
 
-    //         await expect(
-    //             relaySigner1.unpauseRelay()
-    //         ).to.revertedWith("Ownable: caller is not the owner")
-    //     });
-    // });
+            await expect(
+                relaySigner1.unpauseRelay()
+            ).to.revertedWith("Ownable: caller is not the owner")
+        });
+    });
 
-    // describe('#getBlockHeaderHash', async () => {
-    //     /* eslint-disable-next-line camelcase */
-    //     const { chain, genesis, orphan_562630 } = REGULAR_CHAIN;
+    describe('#getBlockMerkleRoot', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, genesis, orphan_562630 } = REGULAR_CHAIN;
 
-    //     beforeEach(async () => {
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
-    //             genesis.height,
-    //             orphan_562630.digest_le,
-    //             ZERO_ADDRESS
-    //         );
-    //     });
+        beforeEach(async () => {
+            relay2 = await relayFactory.deploy(
+                genesis.hex,
+                genesis.height,
+                orphan_562630.merkle_root,
+                ZERO_ADDRESS
+            );
+            relay2.setProofTime(10);
+            relay2.setDisputeTime(10);
+        });
 
-    //     it('views the hash correctly', async () => {
-    //         const header = chain[0].hex;
-    //         expect(
-    //             await relay2.addHeaders(genesis.hex, header)
-    //         ).to.emit(relay2, "BlockAdded")
-    //         expect(
-    //             await relay2.getBlockHeaderHash(chain[0].height, 0)
-    //         ).to.equal(chain[0].digest_le)
-    //     });
+        // it('views the hash correctly', async () => {
+        //     const header = chain[0].merkle_root;
+        //     expect(
+        //         await relay2.addBlock(genesis.merkle_root, header)
+        //     ).to.emit(relay2, "BlockAdded")
+        //     delay(10);
+        //     expect(
+        //         await relay2.getBlockMerkleRoot(chain[0].height, 0)
+        //     ).to.equal(chain[0].merkle_root)
+        // });
 
-    // });
+    });
 
     // describe('## Setters', async () => {
     //     /* eslint-disable-next-line camelcase */

@@ -136,6 +136,9 @@ interface IRelay {
     /// @notice                     Emits when changes made to min dispute time
     event NewMinDisputeTime(uint oldMinDisputeTime, uint newMinDisputeTime);
 
+    /// @notice                     Emits when changes made to min proof time
+    event NewMinProofTime(uint oldMinProofTime, uint newMinProofTime);
+
     // Read-only functions
 
     function relayGenesisMerkleRoot() external view returns (bytes32);
@@ -185,6 +188,8 @@ interface IRelay {
     function disputeTime() external view returns(uint);
 
     function minDisputeTime() external view returns(uint);
+
+    function minProofTime() external view returns(uint);
 
     function proofTime() external view returns(uint);
 

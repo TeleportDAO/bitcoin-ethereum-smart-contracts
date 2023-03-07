@@ -35,6 +35,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override disputeTime;
     uint public override minDisputeTime;
     uint public override proofTime;
+    uint public override minProofTime;
     address public override TeleportDAOToken;
     bytes32 public override relayGenesisMerkleRoot; // Initial block header of relay
     uint public override minCollateralRelayer;
@@ -81,6 +82,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // Relay parameters
         _setFinalizationParameter(3); // todo change to 5
         _setMinDisputeTime(10); // todo change to 5 mins
+        _setMinProofTime(10); // todo change to 5 mins
         initialHeight = _height;
         lastVerifiedHeight = _height;
         
@@ -282,6 +284,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         minDisputeTime = _minDisputeTime;
     }
 
+    function _setMinProofTime(uint _minProofTime) private {
+        emit NewMinProofTime(minProofTime, _minProofTime);
+        minProofTime = _minProofTime;
+    }
+
     /// @notice                             Internal setter for relayerPercentageFee
     /// @dev                                This is updated when we want to change the Relayer reward
     /// @param _relayerPercentageFee               Ratio > 1 that determines percentage of reward to the Relayer
@@ -346,6 +353,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @dev                                This is updated when duration in which a header proof can be provided changes
     /// @param _proofTime                   The duration in which a header proof can be provided after disputefunction _setProofTime(uint _proofTime) private {
     function _setProofTime(uint _proofTime) private {
+        require(_proofTime >= minProofTime);
         emit NewProofTime(proofTime, _proofTime);
         proofTime = _proofTime;
     }
@@ -392,6 +400,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _index
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         require(_txid != bytes32(0), "Relay: txid should be non-zero");
+        if (_blockHeight + finalizationParameter == lastVerifiedHeight + 1) {
+            _updateVerifiedAndFinalizedStats();
+        }
         // Revert if the block is not finalized
         require(
             _blockHeight + finalizationParameter < lastVerifiedHeight + 1,
@@ -575,6 +586,27 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     // todo emit events everywhere
     // todo NatSpec
+
+    function _updateVerifiedAndFinalizedStats() internal {
+        uint lastSubmittedHeight = lastVerifiedHeight + 1;
+        if (chain[lastSubmittedHeight].length != 0) {
+            // check for new verified
+            for(uint _idx = 0; _idx < chain[lastSubmittedHeight].length; _idx++) {
+                if (
+                    !_disputed(lastSubmittedHeight, _idx) &&
+                    _disputeTimePassed(lastSubmittedHeight, _idx)
+                ) {
+                    _verifyHeader(lastSubmittedHeight, _idx);
+                    // if new block verified, update finalized stats
+                    if (lastVerifiedHeight != lastSubmittedHeight) {
+                        lastVerifiedHeight = lastSubmittedHeight;
+                        _updateFee();
+                        _pruneChain();
+                    }
+                }
+            }
+        }
+    }
 
     function _ownerAddHeaders(bytes29 _anchor, bytes29 _headers, bool _withRetarget) internal returns (bool) {
         bytes29 _newAnchor = _anchor;
