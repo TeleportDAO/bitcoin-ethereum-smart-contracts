@@ -198,7 +198,7 @@ describe("Relay", async () => {
     //                 blockHeaderOld, // anchor header
     //                 blockHeaderNew // new header;
     //             )
-    //         ).revertedWith('Relay: header work is insufficient')
+    //         ).revertedWith('Relay: insufficient work')
 
     //     });
 
@@ -213,7 +213,7 @@ describe("Relay", async () => {
     //                 blockHeaderOld, // anchor header
     //                 blockHeaderNew // new header;
     //             )
-    //         ).revertedWith('Relay: headers do not form a consistent chain')
+    //         ).revertedWith('Relay: no link')
 
     //     });
 
@@ -241,7 +241,7 @@ describe("Relay", async () => {
     //                 blockHeaderOld, // anchor header
     //                 blockHeaderNew // new header;
     //             )
-    //         ).revertedWith('Relay: unexpected retarget on external call')
+    //         ).revertedWith('Relay: unexpected retarget')
 
     //     });
 
@@ -607,7 +607,7 @@ describe("Relay", async () => {
     //                 transaction.index,
     //                 {value: fee.sub(1)}
     //             )
-    //         ).revertedWith("Relay: fee is not enough")
+    //         ).revertedWith("Relay: low fee")
             
     //         let currentEpochQueries1 = await relaySigner1.currentEpochQueries();
     //         // Check if the number of queries is being counted correctly for fee calculation purposes
@@ -673,7 +673,7 @@ describe("Relay", async () => {
     //                 transaction.index,
     //                 {value: fee}
     //             )
-    //         ).revertedWith("Relay: block is not finalized on the relay1");
+    //         ).revertedWith("Relay: not finalized");
             
     //         let currentEpochQueries1 = await relaySigner1.currentEpochQueries();
 
@@ -993,7 +993,7 @@ describe("Relay", async () => {
     //                 genesis.hex,
     //                 badHeaders
     //             )
-    //         ).to.revertedWith("Relay: unexpected retarget on external call")
+    //         ).to.revertedWith("Relay: unexpected retarget")
     //     });
 
     //     it('errors if the header array is not a multiple of 80 bytes', async () => {
@@ -1023,7 +1023,7 @@ describe("Relay", async () => {
     //                 genesis.hex,
     //                 badHeaders
     //             )
-    //         // ).to.revertedWith("Relay: header work is insufficient")
+    //         // ).to.revertedWith("Relay: insufficient work")
     //         ).to.reverted; // above should be uncommented when a proper input is given
     //         // now it reverts before being catched in the expect that we want -> it has invalid target
 
@@ -1057,7 +1057,7 @@ describe("Relay", async () => {
     //                 genesis.hex,
     //                 badHeaders
     //             )
-    //         ).to.revertedWith("Relay: headers do not form a consistent chain")
+    //         ).to.revertedWith("Relay: no link")
 
     //     });
 
@@ -1285,7 +1285,7 @@ describe("Relay", async () => {
     //                 firstHeader.hex,
     //                 firstHeader.hex,
     //                 headers)
-    //         ).to.revertedWith("Relay: must provide the last header of the closing difficulty period")
+    //         ).to.revertedWith("Relay: wrong end height")
 
     //     });
 
@@ -1297,7 +1297,7 @@ describe("Relay", async () => {
     //                 lastHeader.hex,
     //                 headers
     //             )
-    //         ).to.revertedWith("Relay: must provide exactly 1 difficulty period")
+    //         ).to.revertedWith("Relay: wrong start height")
 
     //     });
 
@@ -1319,7 +1319,7 @@ describe("Relay", async () => {
     //                 genesis.hex,
     //                 headers
     //             )
-    //         ).to.revertedWith("Relay: invalid retarget provided")
+    //         ).to.revertedWith("Relay: invalid retarget")
 
     //     });
 
