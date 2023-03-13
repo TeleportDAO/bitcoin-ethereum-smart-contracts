@@ -30,6 +30,7 @@ interface IBitcoinNFTMarketplace {
         uint satoshiIdx;
         bool isSold;
         bool hasAccepted;
+        bool isListed;
   	}
 
     /// @notice Structure for recording buyers bids

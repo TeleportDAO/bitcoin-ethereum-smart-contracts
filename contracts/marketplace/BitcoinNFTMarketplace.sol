@@ -114,8 +114,8 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         uint _outputIdx,
 		uint _satoshiIdx
 	) external override whenNotPaused returns (bool) {
-
         bytes32 txId = BitcoinHelper.calculateTxId(_tx.version, _tx.vin, _tx.vout, _tx.locktime);
+        require(!nfts[txId][_msgSender()].isListed, "BitcoinNFTMarketplace: already listed");
 
         // if isSignRequired, seller should provide a valid signature to list NFT (with the same public key that holds the NFT)
         if (isSignRequired) {
@@ -167,6 +167,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         NFT memory _nft;
         _nft.outputIdx = _outputIdx;
         _nft.satoshiIdx = _satoshiIdx;
+        _nft.isListed = true;
         nfts[txId][_msgSender()] = _nft;
 
         emit NFTListed(txId, _outputIdx, _satoshiIdx, _msgSender());

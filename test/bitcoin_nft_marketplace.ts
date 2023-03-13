@@ -188,6 +188,43 @@ describe("BitcoinNFTMarketplace", async () => {
             )
         })
 
+
+        it("Reverts since has been listed", async function () {
+            await bitcoinNFTMarketplace.listNFT(
+                TEST_DATA.listNFT.bitcoinPubKey,
+                TEST_DATA.listNFT.scriptType,
+                TEST_DATA.listNFT.r,
+                TEST_DATA.listNFT.s,
+                TEST_DATA.listNFT.v,
+                {   
+                    version: TEST_DATA.listNFT.version,
+                    vin: TEST_DATA.listNFT.vin,
+                    vout: TEST_DATA.listNFT.vout,
+                    locktime: TEST_DATA.listNFT.locktime
+                },
+                TEST_DATA.listNFT.outputIdx,
+                TEST_DATA.listNFT.satoshiIdx
+            );
+
+            expect(
+                bitcoinNFTMarketplace.listNFT(
+                    TEST_DATA.listNFT.bitcoinPubKey,
+                    TEST_DATA.listNFT.scriptType,
+                    TEST_DATA.listNFT.r,
+                    TEST_DATA.listNFT.s,
+                    TEST_DATA.listNFT.v,
+                    {   
+                        version: TEST_DATA.listNFT.version,
+                        vin: TEST_DATA.listNFT.vin,
+                        vout: TEST_DATA.listNFT.vout,
+                        locktime: TEST_DATA.listNFT.locktime
+                    },
+                    TEST_DATA.listNFT.outputIdx,
+                    TEST_DATA.listNFT.satoshiIdx
+                )
+            ).to.revertedWith("BitcoinNFTMarketplace: already listed")
+        })
+
         it("List an NFT Taproot", async function () {
             await expect(
                 bitcoinNFTMarketplace.listNFT(
@@ -734,35 +771,6 @@ describe("BitcoinNFTMarketplace", async () => {
                     ]
                 )
             ).to.revertedWith("BitcoinNFTMarketplace: outpoint != input tx")
-        })
-
-        it("Reverts since nft not transffered", async function () {
-            await listNFT(1); // list with new satoshi index
-            expect(
-                bitcoinNFTMarketplace.sellNFT(
-                    TEST_DATA.listNFT.txId,
-                    deployerAddress,
-                    0,
-                    {   
-                        version: TEST_DATA.sellNFT.transferTxVersion,
-                        vin: TEST_DATA.sellNFT.transferTxVin,
-                        vout: TEST_DATA.sellNFT.transferTxVout,
-                        locktime: TEST_DATA.sellNFT.transferTxLocktime
-                    },
-                    TEST_DATA.sellNFT.outputNFTIdx,
-                    TEST_DATA.sellNFT.blockNumber,
-                    TEST_DATA.sellNFT.intermediateNodes,
-                    TEST_DATA.sellNFT.index,
-                    [
-                        {  
-                            version: TEST_DATA.sellNFT.inputTxVersion,
-                            vin: TEST_DATA.sellNFT.inputTxVin,
-                            vout: TEST_DATA.sellNFT.inputTxVout,
-                            locktime: TEST_DATA.sellNFT.inputTxLocktime
-                        }
-                    ]
-                )
-            ).to.revertedWith("BitcoinNFTMarketplace: not transffered")
         })
 
         it("Reverts since nft transffered to another user", async function () {
