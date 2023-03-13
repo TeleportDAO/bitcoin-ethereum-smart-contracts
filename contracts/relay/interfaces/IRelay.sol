@@ -4,16 +4,16 @@ pragma solidity >=0.8.0 <0.8.4;
 interface IRelay {
     // Structures
 
-    /// @notice                 	Structure for recording block data
-    /// @dev                        If the block data provided by the Relayer is not correct,
-    ///                             it's collateral might get slashed
-    /// @param merkleRoot          	Merkle root of the txs in the block
-    /// @param relayer       	    Address of relayer who submitted the block data
-    /// @param gasPrice             Gas price of tx that relayer submitted the block data
-    /// @param verified             Whether the correctness of the block data is verified or not
-    /// @param startDisputeTime     When timer starts for submitting a dispute
-    /// @param startProofTime       When timer starts for providing the block proof
-    /// @param disputer             The address that disputed the data of this block
+    /// @notice Structure for recording block data
+    /// @dev If the block data provided by the Relayer is not correct,
+    ///      it's collateral might get slashed
+    /// @param merkleRoot of the txs in the block
+    /// @param relayer Address of relayer who submitted the block data
+    /// @param gasPrice of tx that relayer submitted the block data
+    /// @param verified Whether the correctness of the block data is verified or not
+    /// @param startDisputeTime When timer starts for submitting a dispute
+    /// @param startProofTime When timer starts for providing the block proof
+    /// @param disputer The address that disputed the data of this block
     struct blockData {
         bytes32 merkleRoot;
         address relayer;
@@ -174,10 +174,6 @@ interface IRelay {
     function availableTNT() external view returns(uint);
 
     function findHeight(bytes32 _hash) external view returns (uint256);
-
-    function findAncestor(bytes32 _hash, uint256 _offset) external view returns (bytes32); 
-
-    function isAncestor(bytes32 _ancestor, bytes32 _descendant, uint256 _limit) external view returns (bool); 
 
     function rewardAmountInTDT() external view returns (uint);
 
