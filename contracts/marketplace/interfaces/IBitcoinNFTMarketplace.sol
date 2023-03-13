@@ -155,6 +155,6 @@ interface IBitcoinNFTMarketplace {
 		bytes memory _intermediateNodes,
 		uint _index,
         Tx[] memory _inputTxs
-    ) external returns (bool);
+    ) external payable returns (bool);
 
 }

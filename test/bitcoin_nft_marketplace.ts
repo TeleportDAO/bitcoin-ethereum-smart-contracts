@@ -581,6 +581,60 @@ describe("BitcoinNFTMarketplace", async () => {
             ).equal(newBalance, "Wrong balance")
         })
 
+        it("Reverts since NFT has been sold", async function () {
+
+            await bitcoinNFTMarketplace.sellNFT(
+                TEST_DATA.listNFT.txId,
+                deployerAddress,
+                0,
+                {   
+                    version: TEST_DATA.sellNFT.transferTxVersion,
+                    vin: TEST_DATA.sellNFT.transferTxVin,
+                    vout: TEST_DATA.sellNFT.transferTxVout,
+                    locktime: TEST_DATA.sellNFT.transferTxLocktime
+                },
+                TEST_DATA.sellNFT.outputNFTIdx,
+                TEST_DATA.sellNFT.blockNumber,
+                TEST_DATA.sellNFT.intermediateNodes,
+                TEST_DATA.sellNFT.index,
+                [
+                    {  
+                        version: TEST_DATA.sellNFT.inputTxVersion,
+                        vin: TEST_DATA.sellNFT.inputTxVin,
+                        vout: TEST_DATA.sellNFT.inputTxVout,
+                        locktime: TEST_DATA.sellNFT.inputTxLocktime
+                    }
+                ]
+            )
+
+            expect(
+                bitcoinNFTMarketplace.sellNFT(
+                    TEST_DATA.listNFT.txId,
+                    deployerAddress,
+                    0,
+                    {   
+                        version: TEST_DATA.sellNFT.transferTxVersion,
+                        vin: TEST_DATA.sellNFT.transferTxVin,
+                        vout: TEST_DATA.sellNFT.transferTxVout,
+                        locktime: TEST_DATA.sellNFT.transferTxLocktime
+                    },
+                    TEST_DATA.sellNFT.outputNFTIdx,
+                    TEST_DATA.sellNFT.blockNumber,
+                    TEST_DATA.sellNFT.intermediateNodes,
+                    TEST_DATA.sellNFT.index,
+                    [
+                        {  
+                            version: TEST_DATA.sellNFT.inputTxVersion,
+                            vin: TEST_DATA.sellNFT.inputTxVin,
+                            vout: TEST_DATA.sellNFT.inputTxVout,
+                            locktime: TEST_DATA.sellNFT.inputTxLocktime
+                        }
+                    ]
+                )
+            ).to.revertedWith("BitcoinNFTMarketplace: sold nft")
+
+        })
+
         it("Sell NFT Taproot", async function () {
 
             await listNFTTaproot();
