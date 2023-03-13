@@ -48,6 +48,9 @@ describe("Relay", async () => {
     let merkleRoots: any;
     let minDisputeTime = 10;
     let minProofTime = 10;
+    let minCollateralDisputer = '100000000000000000'; // = 0.1 * 10 ^ 18
+    let minCollateralRelayer = BigNumber.from(10); // = ? * 10 ^ 18
+    let disputeRewardPercentage = 100;
 
     let mockTDT: MockContract;
 
@@ -111,6 +114,9 @@ describe("Relay", async () => {
 
         relay1.setProofTime(minProofTime);
         relay1.setDisputeTime(minDisputeTime);
+        relay1.setMinCollateralDisputer(minCollateralDisputer);
+        relay1.setMinCollateralRelayer(minCollateralRelayer);
+        relay1.setDisputeRewardPercentage(disputeRewardPercentage);
 
         return relay1;
     };
@@ -933,53 +939,63 @@ describe("Relay", async () => {
         // setMinCollateralDisputer, setDisputeRewardPercentage, setProofRewardPercentage yet
     });
 
-    // describe('#addHeaders', async () => {
-    //     /* eslint-disable-next-line camelcase */
-    //     const { chain_header_hex, chain, genesis, orphan_562630 } = REGULAR_CHAIN;
-    //     // const headerHex = chain.map(header=> header.hex);
-    //     const headerHex = chain_header_hex;
+    describe('#addBlock', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, genesis, orphan_562630 } = REGULAR_CHAIN;
 
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(0, 6));
+        beforeEach(async () => {
 
-    //     beforeEach(async () => {
+            relay2 = await relayFactory.deploy(
+                genesis.hex,
+                genesis.height,
+                orphan_562630.merkle_root,
+                mockTDT.address
+            );
+            relay2.setMinCollateralRelayer(minCollateralRelayer);
 
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
-    //             genesis.height,
-    //             orphan_562630.digest_le,
-    //             mockTDT.address
-    //         );
+        });
 
-    //     });
+        it('errors if the smart contract is paused', async () => {
 
-    //     it('errors if the smart contract is paused', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
+            // pause the relay1
+            await relay2.pauseRelay();
 
-    //         // pause the relay1
-    //         await relay2.pauseRelay();
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther("0.1")}
+                )
+            ).to.revertedWith("Pausable: paused")
+        });
 
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 '0x00',
-    //                 headers
-    //             )
-    //         ).to.revertedWith("Pausable: paused")
-    //     });
+        it("errors if relayer doesn't have enough collateral", async () => {
 
-    //     it('errors if the anchor is unknown', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
+            let temp = await relay2.minCollateralRelayer();
+            console.log("min collateral relayer = ", minCollateralRelayer);
+            console.log("min collateral relayer = ", temp);
 
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 '0x00',
-    //                 headers
-    //             )
-    //         ).to.revertedWith("Relay: anchor must be 80 bytes")
-    //     });
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root
+                )
+            ).to.revertedWith("Relay: no enough collateral -- relayer")
+        });
+
+        // it('errors if the anchor is unknown', async () => {
+        //     // initialize mock contract
+        //     await setTDTbalanceOf(0);
+        //     await setTDTtransfer(true);
+
+        //     await expect(
+        //         relay2.addBlock(
+        //             '0x00',
+        //             chain[1].merkle_root,
+        //             {value: ethers.utils.parseEther("0.1")}
+        //         )
+        //     ).to.revertedWith("Relay: anchor must be 80 bytes")
+        // });
 
     //     it('errors if it encounters a retarget on an external call', async () => {
     //         // initialize mock contract
@@ -1216,7 +1232,7 @@ describe("Relay", async () => {
     //         const oneMoreHeader = utils.concatenateHexStrings([headers, headerHex[6]]);
     //         await relay2.addHeaders(genesis.hex, oneMoreHeader);
     //     });
-    // });
+    });
 
     // describe('#addHeadersWithRetarget', async () => {
     //     const { chain, chain_header_hex } = RETARGET_CHAIN;
