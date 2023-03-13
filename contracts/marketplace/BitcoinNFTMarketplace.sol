@@ -196,14 +196,18 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         _bid.buyerETHAddress = _msgSender();
         _bid.bidAmount = msg.value;
         bids[_txId][_seller].push(_bid);
+        uint bidIdx = bids[_txId][_seller].length - 1;
 
         emit NewBid(
             _txId, 
+            nfts[_txId][_seller].outputIdx,
+            nfts[_txId][_seller].satoshiIdx,
             _seller, 
             _msgSender(),
             _buyerBTCScript,
             _scriptType,
-            msg.value
+            msg.value,
+            bidIdx
         );
 
         return true;

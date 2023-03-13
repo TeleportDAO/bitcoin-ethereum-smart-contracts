@@ -358,11 +358,14 @@ describe("BitcoinNFTMarketplace", async () => {
                 )
             ).to.emit(bitcoinNFTMarketplaceSigner1, "NewBid").withArgs(
                 TEST_DATA.listNFT.txId,
+                TEST_DATA.listNFT.outputIdx,
+                TEST_DATA.listNFT.satoshiIdx,
                 deployerAddress,
                 signer1Address,
                 TEST_DATA.putBid.btcScript,
                 TEST_DATA.putBid.scriptType,
-                TEST_DATA.putBid.bidAmount
+                TEST_DATA.putBid.bidAmount,
+                0
             )
         })
 

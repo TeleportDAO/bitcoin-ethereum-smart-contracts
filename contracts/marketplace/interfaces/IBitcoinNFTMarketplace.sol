@@ -58,11 +58,14 @@ interface IBitcoinNFTMarketplace {
 
     event NewBid(
         bytes32 txId, 
+        uint outputIdx, 
+        uint satoshiIdx, 
         address seller, 
         address buyer,
         bytes buyerBTCScript,
         ScriptTypes buyerScriptType,
-        uint bidAmount
+        uint bidAmount,
+        uint bidIdx
     );
 
     event BidAccepted(
