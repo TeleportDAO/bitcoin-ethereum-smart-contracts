@@ -442,7 +442,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         relayers[_msgSender()] += msg.value;
         
         // check input lengths
-        require(_blockMerkleRoot != bytes32(0), "Relay: input should be non-zero");
+        require(_blockMerkleRoot != bytes32(0), "Relay: input should be non-zero"); // todo check length
         require(_anchorMerkleRoot != bytes32(0), "Relay: input should be non-zero");
 
         _addBlock(_anchorMerkleRoot, _blockMerkleRoot);
