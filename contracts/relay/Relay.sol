@@ -21,6 +21,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     // Public variables
     uint constant ONE_HUNDRED_PERCENT = 10000;
     uint constant MAX_FINALIZATION_PARAMETER = 432; // roughly 3 days
+    uint constant MIN_DISPUTE_TIME = 8 minutes;
+    uint constant MIN_PROOF_TIME = 5 minutes;
 
     uint public override initialHeight;
     uint public override lastVerifiedHeight;
@@ -33,9 +35,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override currentEpochQueries;
     uint public override lastEpochQueries;
     uint public override disputeTime;
-    uint public override minDisputeTime; // TODO: make it constant
     uint public override proofTime;
-    uint public override minProofTime; // TODO: make it constant
     address public override TeleportDAOToken;
     bytes32 public override relayGenesisMerkleRoot; // Initial Merkle root of relay
     uint public override minCollateralRelayer;
@@ -48,30 +48,28 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     mapping(bytes32 => bytes32) internal parentRoot; // block Merkle root => parent Merkle root
     mapping(bytes32 => uint256) internal blockHeight; // block Merkle root => block height
     mapping(address => uint) internal relayersCollateral; // relayer address => locked collateral
-    mapping(address => uint) internal disputers; // disputer address => locked collateral
+    mapping(address => uint) internal disputersCollateral; // disputer address => locked collateral
 
     // todo delete parentRoot[] of the blocks that has gotten finalized to save gas
     // but also add a bool to save submission of a block to prevent replicas
 
     /// @notice Gives a starting point for the relay
-    /// @param  _genesisHeader The starting header
+    /// @param  _genesisMerkleRoot The starting header Merkle root
     /// @param  _height The starting height of relay
     /// @param  _periodStart The Merkle root of the first header in the genesis epoch
     /// @param  _TeleportDAOToken The address of the TeleportDAO ERC20 token contract
     constructor(
-        bytes memory _genesisHeader, // TODO: pass merkle root?
+        bytes32 _genesisMerkleRoot, 
         uint256 _height,
         bytes32 _periodStart,
         address _TeleportDAOToken
     ) {
         // Adds the initial block header to the chain
-        bytes29 _genesisView = _genesisHeader.ref(0).tryAsHeader();
-        require(_genesisView.notNull(), "Relay: stop being dumb");
+        require(_genesisMerkleRoot != bytes32(0), "Relay: genesis root is zero");
         // genesis header and period start can be same
-        bytes32 _genesisMerkleRoot = _genesisView.merkleRoot();
         relayGenesisMerkleRoot = _genesisMerkleRoot;
         blockData memory newblockData;
-        newblockData.merkleRoot = _genesisView.merkleRoot();
+        newblockData.merkleRoot = _genesisMerkleRoot;
         newblockData.relayer = _msgSender();
         newblockData.gasPrice = 0;
         newblockData.verified = true;
@@ -81,8 +79,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Relay parameters
         _setFinalizationParameter(3); // todo change to 5
-        _setMinDisputeTime(10); // todo change to 5 mins
-        _setMinProofTime(10); // todo change to 5 mins
         initialHeight = _height;
         lastVerifiedHeight = _height;
         
@@ -321,7 +317,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         require(msg.value >= minCollateralDisputer, "Relay: low collateral");
 
         // Saves collateral amount
-        disputers[_msgSender()] += msg.value;
+        disputersCollateral[_msgSender()] += msg.value;
         uint _height = _findHeight(_blockMerkleRoot); // Reverts if header does not exist
         uint _idx = _findIndex(_blockMerkleRoot, _height);
         require(
@@ -367,19 +363,16 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         emit DisputeReward(
             _blockMerkleRoot, 
             chain[_height][_idx].disputer,
-            chain[_height][_idx].relayer,
-            relayersCollateral[chain[_height][_idx].relayer],
-            disputers[chain[_height][_idx].disputer]
+            chain[_height][_idx].relayer
         );
-        // TODO: for relayer and disputer accept multiple collaterals
+        relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
+        disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer; 
         // Sends the disputer reward + its collateral
         Address.sendValue(
-            payable(chain[_height][_idx].disputer), 
-            relayersCollateral[chain[_height][_idx].relayer] * disputeRewardPercentage 
-                / ONE_HUNDRED_PERCENT + disputers[chain[_height][_idx].disputer]
+            payable(chain[_height][_idx].disputer), // TODO: send the rest to the treasury
+            minCollateralRelayer * disputeRewardPercentage / ONE_HUNDRED_PERCENT
+                + minCollateralDisputer
         );
-        relayersCollateral[chain[_height][_idx].relayer] = 0; // TODO: send to treasury
-        disputers[chain[_height][_idx].disputer] = 0; 
 
         return true;
     }
@@ -497,18 +490,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         finalizationParameter = _finalizationParameter;
     }
 
-    /// @notice Internal setter for minDisputeTime
-    function _setMinDisputeTime(uint _minDisputeTime) private {
-        emit NewMinDisputeTime(minDisputeTime, _minDisputeTime);
-        minDisputeTime = _minDisputeTime;
-    }
-
-    /// @notice Internal setter for minProofTime
-    function _setMinProofTime(uint _minProofTime) private {
-        emit NewMinProofTime(minProofTime, _minProofTime);
-        minProofTime = _minProofTime;
-    }
-
     /// @notice Internal setter for relayerPercentageFee
     function _setRelayerPercentageFee(uint _relayerPercentageFee) private {
         emit NewRelayerPercentageFee(relayerPercentageFee, _relayerPercentageFee);
@@ -553,14 +534,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Internal setter for disputeTime
     function _setDisputeTime(uint _disputeTime) private {
-        require(_disputeTime >= minDisputeTime);
+        require(_disputeTime >= MIN_DISPUTE_TIME);
         emit NewDisputeTime(disputeTime, _disputeTime);
         disputeTime = _disputeTime;
     }
 
     /// @notice Internal setter for proofTime
     function _setProofTime(uint _proofTime) private {
-        require(_proofTime >= minProofTime);
+        require(_proofTime >= MIN_PROOF_TIME);
         emit NewProofTime(proofTime, _proofTime);
         proofTime = _proofTime;
     }
@@ -727,14 +708,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         if (lastVerifiedHeight < _height) {
             lastVerifiedHeight += 1;
         }
+        relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
+        disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer;
         // Sends relayer its collateral + reward (if disputer exists)
         Address.sendValue(
             payable(chain[_height][_idx].relayer), 
-            relayersCollateral[chain[_height][_idx].relayer] + 
-                disputers[chain[_height][_idx].disputer] * proofRewardPercentage / ONE_HUNDRED_PERCENT
+            minCollateralRelayer // TODO: send the rest to the treasury
+                + minCollateralDisputer * proofRewardPercentage / ONE_HUNDRED_PERCENT
         ); 
-        relayersCollateral[chain[_height][_idx].relayer] = 0;
-        disputers[chain[_height][_idx].disputer] = 0;
         emit BlockVerified(
             _height,
             chain[_height][_idx].merkleRoot,
@@ -819,9 +800,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // Sends back the Relayer collateral
         Address.sendValue(
             payable(chain[_height][_idx].relayer), 
-            relayersCollateral[chain[_height][_idx].relayer]
+            minCollateralRelayer
         );
-        relayersCollateral[chain[_height][_idx].relayer] = 0;
+        relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
 
         emit BlockVerified(
             _height,
@@ -990,8 +971,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             // Keep the finalized Merkle root and delete rest of roots
             if(chain[currentHeight].length > 1){
                 if(stableIdx != 0) {
+                    if(!chain[currentHeight][0].verified) {_verifyHeader(currentHeight, 0);}
                     blockHeight[chain[currentHeight][0].merkleRoot] = 0; // Since we copy stableIdx in index 0 of chain, we need to remove index 0 Merkle root from blockHeight here
-                    
                     // store finalized merkle root at index 0
                     chain[currentHeight][0] = chain[currentHeight][stableIdx]; 
                 }
@@ -1034,6 +1015,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _idx = chain[_height].length - 1;
         while(_idx > 0){
             if(_idx != _stableIdx) {
+                if(!chain[_height][_idx].verified) {_verifyHeader(_height, _idx);}
                 blockHeight[chain[_height][_idx].merkleRoot] = 0;
             }
             chain[_height].pop();

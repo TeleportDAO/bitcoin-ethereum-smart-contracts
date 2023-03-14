@@ -72,14 +72,10 @@ interface IRelay {
     /// @param merkleRoot          	Merkle root of the txs in the block
     /// @param disputer             The address that disputed the data of this block
     /// @param relayer              Address of relayer who submitted the block data
-    /// @param relayerCollateral    Collateral of relayer locked to submit the block data before it gets verified
-    /// @param disputerCollateral   Collateral of disputer locked to submit the dispute before it gets verified
     event DisputeReward(
             bytes32 merkleRoot,
             address indexed disputer,
-            address indexed relayer,
-            uint relayerCollateral,
-            uint disputerCollateral
+            address indexed relayer
     );
 
     /// @notice                     Emits when a block get disputed
@@ -133,12 +129,6 @@ interface IRelay {
     /// @notice                     Emits when changes made to proof reward percentage
     event NewProofRewardPercentage(uint oldProofRewardPercentage, uint newProofRewardPercentage);
 
-    /// @notice                     Emits when changes made to min dispute time
-    event NewMinDisputeTime(uint oldMinDisputeTime, uint newMinDisputeTime);
-
-    /// @notice                     Emits when changes made to min proof time
-    event NewMinProofTime(uint oldMinProofTime, uint newMinProofTime);
-
     // Read-only functions
 
     function relayGenesisMerkleRoot() external view returns (bytes32);
@@ -182,10 +172,6 @@ interface IRelay {
     function minCollateralDisputer() external view returns(uint);
 
     function disputeTime() external view returns(uint);
-
-    function minDisputeTime() external view returns(uint);
-
-    function minProofTime() external view returns(uint);
 
     function proofTime() external view returns(uint);
 

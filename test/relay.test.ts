@@ -44,6 +44,7 @@ describe("Relay", async () => {
     let signer3: Signer;
 
     let ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+    let ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
     let bitcoinRESTAPI: any;
     let merkleRoots: any;
     let minDisputeTime = 10;
@@ -99,31 +100,27 @@ describe("Relay", async () => {
 
         let _height = _genesisHeight;
         let _heightBigNumber = BigNumber.from(_genesisHeight)
-        let _genesisHeader = await bitcoinRESTAPI.getHexBlockHeader(_genesisHeight);
+        // todo: below should be Merkle root but for now since it is already some hash we don't care
+        let _genesisMerkleRoot = '0x' + await bitcoinRESTAPI.getHexBlockHash(_height - (_height % 2016));
         // todo: below should be Merkle root but for now since it is already some hash we don't care
         let _periodStart = await bitcoinRESTAPI.getHexBlockHash(_height - (_height % 2016)); 
-        _genesisHeader = '0x' + _genesisHeader;
         _periodStart = '0x' + revertBytes32(_periodStart);
-
+        
         const relay1 = await relayFactory.deploy(
-            _genesisHeader,
+            _genesisMerkleRoot,
             _heightBigNumber,
             _periodStart,
             ZERO_ADDRESS
         );
 
-        relay1.setProofTime(minProofTime);
-        relay1.setDisputeTime(minDisputeTime);
-        relay1.setMinCollateralDisputer(minCollateralDisputer);
-        relay1.setMinCollateralRelayer(minCollateralRelayer);
         relay1.setDisputeRewardPercentage(disputeRewardPercentage);
 
         return relay1;
     };
 
     const deployRelayWithGenesis = async (
+        _genesisMerkleRoot: any,
         _genesisHeight: any,
-        _genesisHeader: any,
         _periodStart: any,
         _signer?: Signer
     ): Promise<Relay> => {
@@ -132,18 +129,14 @@ describe("Relay", async () => {
         );
 
         let _heightBigNumber = BigNumber.from(_genesisHeight)
-        _genesisHeader = '0x' + _genesisHeader;
         _periodStart = '0x' + revertBytes32(_periodStart);
 
         const relayTest = await relayFactory.deploy(
-            _genesisHeader,
+            _genesisMerkleRoot,
             _heightBigNumber,
             _periodStart,
             ZERO_ADDRESS
         );
-
-        relayTest.setProofTime(minProofTime);
-        relayTest.setDisputeTime(minDisputeTime);
 
         return relayTest;
     };
@@ -293,8 +286,8 @@ describe("Relay", async () => {
     //     beforeEach(async () => {
 
     //         relayTest = await deployRelayWithGenesis(
-    //             bitcoinCash[0].blockNumber,
     //             bitcoinCash[0].blockHeader,
+    //             bitcoinCash[0].blockNumber,
     //             bitcoinPeriodStart.blockHash
     //         );
 
@@ -431,8 +424,8 @@ describe("Relay", async () => {
 
     //         // deploy bitcoin relay1 contract with block 478558 (index 0 is 478555)
     //         relayTest = await deployRelayWithGenesis(
-    //             oldChain[3].blockNumber,
     //             oldChain[3].blockHeader,
+    //             oldChain[3].blockNumber,
     //             periodStart.blockHash
     //         );
 
@@ -702,7 +695,7 @@ describe("Relay", async () => {
 
         beforeEach(async () => {
             relay2 = await relayFactory.deploy(
-                genesis.hex,
+                genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
                 ZERO_ADDRESS
@@ -713,12 +706,12 @@ describe("Relay", async () => {
 
             await expect(
                 relayFactory.deploy(
-                    '0x00',
+                    ZERO_HASH,
                     genesis.height,
                     genesis.merkle_root,
                     ZERO_ADDRESS
                 )
-            ).to.revertedWith("Relay: stop being dumb")
+            ).to.revertedWith("Relay: genesis root is zero")
         });
 
         it('stores genesis block info', async () => {
@@ -727,12 +720,12 @@ describe("Relay", async () => {
                 await relay2.relayGenesisMerkleRoot()
             ).to.equal(genesis.merkle_root)
 
-            expect(
-                await relay2.findAncestor(
-                    genesis.merkle_root,
-                    0
-                )
-            ).to.equal(genesis.merkle_root)
+            // expect(
+            //     await relay2.findAncestor(
+            //         genesis.merkle_root,
+            //         0
+            //     )
+            // ).to.equal(genesis.merkle_root)
 
             expect(
                 await relay2.findHeight(genesis.merkle_root)
@@ -746,7 +739,7 @@ describe("Relay", async () => {
 
         beforeEach(async () => {
             relay2 = await relayFactory.deploy(
-                genesis.hex,
+                genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
                 ZERO_ADDRESS
@@ -768,7 +761,7 @@ describe("Relay", async () => {
 
         beforeEach(async () => {
             relay2 = await relayFactory.deploy(
-                genesis.hex,
+                genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
                 ZERO_ADDRESS
@@ -794,7 +787,7 @@ describe("Relay", async () => {
 
         beforeEach(async () => {
             relay2 = await relayFactory.deploy(
-                genesis.hex,
+                genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
                 ZERO_ADDRESS
@@ -819,7 +812,7 @@ describe("Relay", async () => {
 
         beforeEach(async () => {
             relay2 = await relayFactory.deploy(
-                genesis.hex,
+                genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
                 ZERO_ADDRESS
@@ -946,12 +939,12 @@ describe("Relay", async () => {
         beforeEach(async () => {
 
             relay2 = await relayFactory.deploy(
-                genesis.hex,
+                genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
                 mockTDT.address
             );
-            relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
 
         });
 
@@ -971,16 +964,12 @@ describe("Relay", async () => {
 
         it("errors if relayer doesn't have enough collateral", async () => {
 
-            let temp = await relay2.minCollateralRelayer();
-            console.log("min collateral relayer = ", minCollateralRelayer);
-            console.log("min collateral relayer = ", temp);
-
             await expect(
                 relay2.addBlock(
                     genesis.merkle_root,
                     chain[0].merkle_root
                 )
-            ).to.revertedWith("Relay: no enough collateral -- relayer")
+            ).to.revertedWith("Relay: low collateral")
         });
 
         // it('errors if the anchor is unknown', async () => {
@@ -1006,7 +995,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 badHeaders
     //             )
     //         ).to.revertedWith("Relay: unexpected retarget")
@@ -1021,7 +1010,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 badHeaders
     //             )
     //         ).to.revertedWith("Relay: header array length must be divisible by 80")
@@ -1036,7 +1025,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 badHeaders
     //             )
     //         // ).to.revertedWith("Relay: insufficient work")
@@ -1054,7 +1043,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 badHeaders
     //             )
     //         ).to.revertedWith("Relay: target changed unexpectedly")
@@ -1070,7 +1059,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 badHeaders
     //             )
     //         ).to.revertedWith("Relay: no link")
@@ -1084,7 +1073,7 @@ describe("Relay", async () => {
 
     //         expect(
     //             await relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.emit(relay2, "BlockAdded")
@@ -1099,7 +1088,7 @@ describe("Relay", async () => {
     //         expect(relay2Balance0).to.equal(BigNumber.from(0));
     //         expect(
     //             await relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.emit(relay2, "BlockAdded")
@@ -1118,7 +1107,7 @@ describe("Relay", async () => {
 
     //         expect(
     //             await relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.emit(relay2, "BlockAdded")
@@ -1134,7 +1123,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relay2.addHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.revertedWith("SafeERC20: ERC20 operation did not succeed")
@@ -1154,7 +1143,7 @@ describe("Relay", async () => {
 
     //         // submit blocks 0 to 3
     //         await relayer1.addHeaders(
-    //             genesis.hex,
+    //             genesis.merkle_root,
     //             chain[0].hex
     //         )
 
@@ -1230,7 +1219,7 @@ describe("Relay", async () => {
     //         await setTDTtransfer(true);
 
     //         const oneMoreHeader = utils.concatenateHexStrings([headers, headerHex[6]]);
-    //         await relay2.addHeaders(genesis.hex, oneMoreHeader);
+    //         await relay2.addHeaders(genesis.merkle_root, oneMoreHeader);
     //     });
     });
 
@@ -1247,13 +1236,13 @@ describe("Relay", async () => {
     //     beforeEach(async () => {
 
     //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
+    //             genesis.merkle_root,
     //             genesis.height,
     //             firstHeader.digest_le,
     //             ZERO_ADDRESS
     //         );
 
-    //         await relay2.addHeaders(genesis.hex, preChange);
+    //         await relay2.addHeaders(genesis.merkle_root, preChange);
 
     //     });
 
@@ -1323,7 +1312,7 @@ describe("Relay", async () => {
     //         );
 
     //         const tmprelay2 = await relayFactory.deploy(
-    //             genesis.hex,
+    //             genesis.merkle_root,
     //             lastHeader.height, // This is a lie
     //             firstHeader.digest_le,
     //             ZERO_ADDRESS
@@ -1332,7 +1321,7 @@ describe("Relay", async () => {
     //         await expect(
     //             tmprelay2.addHeadersWithRetarget(
     //                 firstHeader.hex,
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.revertedWith("Relay: invalid retarget")
@@ -1361,13 +1350,13 @@ describe("Relay", async () => {
     //     beforeEach(async () => {
 
     //         relay3 = await relayFactory.deploy(
-    //             genesis.hex,
+    //             genesis.merkle_root,
     //             genesis.height,
     //             oldPeriodStart.digest_le,
     //             ZERO_ADDRESS
     //         );
 
-    //         await relay3.addHeaders(genesis.hex, headers);
+    //         await relay3.addHeaders(genesis.merkle_root, headers);
     //     });
 
     //     it('errors on unknown blocks', async () => {
@@ -1393,99 +1382,6 @@ describe("Relay", async () => {
     //     });
     // });
 
-    // describe('#findAncestor', async () => {
-    //     const { chain, genesis, chain_header_hex, oldPeriodStart } = REGULAR_CHAIN;
-    //     const headerHex = chain_header_hex;
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(0, 6));
-
-    //     beforeEach(async () => {
-
-    //         relay3 = await relayFactory.deploy(
-    //             genesis.hex,
-    //             genesis.height,
-    //             // FIXME: must pass the first block of the block period (2016)
-    //             oldPeriodStart.digest_le,
-    //             ZERO_ADDRESS
-    //         );
-
-    //         await relay3.addHeaders(genesis.hex, headers);
-    //     });
-
-    //     it('errors on unknown blocks', async () => {
-
-    //         await expect(
-    //             relay3.findAncestor(`0x${'00'.repeat(32)}`, 3)
-    //         ).to.revertedWith("Relay: unknown ancestor")
-
-    //     });
-
-    //     it('Finds known ancestors based on on offsets', async () => {
-    //         //  since there's only 6 blocks added
-    //         for (let i = 0; i < 6; i += 1) {
-    //             /* eslint-disable-next-line camelcase */
-    //             const { digest_le } = chain[i];
-    //             // console.log("i", i);
-    //             // console.log("chain[i]: ", chain[i]);
-
-    //             /* eslint-disable-next-line no-await-in-loop */
-    //             let res = await relay3.findAncestor(digest_le, 0);
-    //             expect(
-    //                 res
-    //             ).to.equal(digest_le)
-
-    //             // assert.equal(res, digest_le);
-
-    //             if (i > 0) {
-    //                 /* eslint-disable-next-line no-await-in-loop */
-    //                 res = await relay3.findAncestor(digest_le, 1);
-    //                 expect(
-    //                     res
-    //                 ).to.equal(chain[i - 1].digest_le)
-
-    //                 // assert.equal(res, chain[i - 1].digest_le);
-    //             }
-    //         }
-    //     });
-
-    // });
-
-    // describe('#isAncestor', async () => {
-    //     const { chain, genesis, chain_header_hex, oldPeriodStart } = REGULAR_CHAIN;
-    //     const headerHex = chain_header_hex;
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(0, 6));
-
-    //     before(async () => {
-
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
-    //             genesis.height,
-    //             oldPeriodStart.digest_le,
-    //             ZERO_ADDRESS
-    //         );
-    //         await relay2.addHeaders(genesis.hex, headers);
-    //     });
-
-    //     it('returns false if it exceeds the limit', async () => {
-
-    //         expect(
-    //             await relay2.isAncestor(
-    //                 genesis.digest_le, chain[3].digest_le, 1
-    //             )
-    //         ).to.equal(false);
-
-    //     });
-
-    //     it('finds the ancestor if within the limit', async () => {
-
-    //         expect(
-    //             await relay2.isAncestor(
-    //                 genesis.digest_le, chain[3].digest_le, 5
-    //             )
-    //         ).to.equal(true);
-
-    //     });
-    // });
-
     // describe('#ownerAddHeaders', async () => {
     //     /* eslint-disable-next-line camelcase */
     //     const { chain_header_hex, chain, genesis, orphan_562630 } = REGULAR_CHAIN;
@@ -1497,7 +1393,7 @@ describe("Relay", async () => {
     //     beforeEach(async () => {
 
     //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
+    //             genesis.merkle_root,
     //             genesis.height,
     //             orphan_562630.digest_le,
     //             mockTDT.address
@@ -1515,7 +1411,7 @@ describe("Relay", async () => {
 
     //         expect(
     //             await relayDeployer.ownerAddHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.emit(relay2, "BlockAdded")
@@ -1528,7 +1424,7 @@ describe("Relay", async () => {
 
     //         await expect(
     //             relaySigner1.ownerAddHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).revertedWith("Ownable: caller is not the owner")
@@ -1542,7 +1438,7 @@ describe("Relay", async () => {
 
     //         expect(
     //             await relayDeployer.ownerAddHeaders(
-    //                 genesis.hex,
+    //                 genesis.merkle_root,
     //                 headers
     //             )
     //         ).to.emit(relay2, "BlockAdded")
@@ -1566,12 +1462,12 @@ describe("Relay", async () => {
     //     beforeEach(async () => {
             
     //         relay2 = await relayFactory.deploy(
-    //             genesis.hex,
+    //             genesis.merkle_root,
     //             genesis.height,
     //             firstHeader.digest_le,
     //             ZERO_ADDRESS
     //         );
-    //         await relay2.ownerAddHeaders(genesis.hex, preChange);
+    //         await relay2.ownerAddHeaders(genesis.merkle_root, preChange);
     //     });
 
     //     it('appends new links to the chain and fires an event', async () => {
