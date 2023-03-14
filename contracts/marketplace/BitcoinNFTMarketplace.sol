@@ -43,6 +43,8 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     mapping(bytes32 => mapping(address => NFT)) public nfts; // mapping from [txId][seller] to listed NFT
     mapping(bytes32 => mapping(address => Bid[])) public bids; // mapping from [txId][seller] to listed NFT (note: it wasn't possible to define Bid[] in NFT)
 
+    receive() external payable {}
+    
     /// @notice Setter for relay contract address
     /// @param _relay The new relay contract address
     function setRelay(address _relay) public override nonZeroAddress(_relay) onlyOwner {
@@ -112,8 +114,8 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         uint _outputIdx,
 		uint _satoshiIdx
 	) external override whenNotPaused returns (bool) {
-
         bytes32 txId = BitcoinHelper.calculateTxId(_tx.version, _tx.vin, _tx.vout, _tx.locktime);
+        require(!nfts[txId][_msgSender()].isListed, "BitcoinNFTMarketplace: already listed");
 
         // if isSignRequired, seller should provide a valid signature to list NFT (with the same public key that holds the NFT)
         if (isSignRequired) {
@@ -165,6 +167,7 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
         NFT memory _nft;
         _nft.outputIdx = _outputIdx;
         _nft.satoshiIdx = _satoshiIdx;
+        _nft.isListed = true;
         nfts[txId][_msgSender()] = _nft;
 
         emit NFTListed(txId, _outputIdx, _satoshiIdx, _msgSender());
@@ -296,19 +299,25 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
 		bytes memory _intermediateNodes,
 		uint _index,
         Tx[] memory _inputTxs
-    ) external nonReentrant whenNotPaused override returns (bool) {
+    ) external payable nonReentrant whenNotPaused override returns (bool) {
+        // checks that NFT hasn't been sold before
+        require(!nfts[_txId][_seller].isSold, "BitcoinNFTMarketplace: sold nft");
+
         // check inclusion of transfer tx
         bytes32 transferTxId = BitcoinHelper.calculateTxId(
-                _transferTx.version, 
-                _transferTx.vin, 
-                _transferTx.vout, 
-                _transferTx.locktime
+            _transferTx.version, 
+            _transferTx.vin, 
+            _transferTx.vout, 
+            _transferTx.locktime
         );
-        _isConfirmed(
-            transferTxId,
-            _blockNumber,
-            _intermediateNodes,
-            _index
+        require(
+            _isConfirmed(
+                transferTxId,
+                _blockNumber,
+                _intermediateNodes,
+                _index
+            ),
+            "BitcoinNFTMarketplace: not finalized"
         );
 
         // find the index of NFT satoshi
@@ -346,9 +355,9 @@ contract BitcoinNFTMarketplace is IBitcoinNFTMarketplace, Ownable, ReentrancyGua
     ) internal pure returns (bool) {
         bytes32 sp = bytes32(Q - mulmod(uint256(_s), uint256(_pubKeyX), Q));
         bytes32 ep = bytes32(Q - mulmod(uint256(_e), uint256(_pubKeyX), Q));
-        require(sp != 0, "Marketplace: wrong sig");
+        require(sp != 0, "BitcoinNFTMarketplace: wrong sig");
         address R = ecrecover(sp, _v, _pubKeyX, ep);
-        require(R != address(0), "Marketplace: ecrecover failed");
+        require(R != address(0), "BitcoinNFTMarketplace: ecrecover failed");
         return _e == keccak256(
             abi.encodePacked(R, uint8(_v), _pubKeyX, _msg)
         );
