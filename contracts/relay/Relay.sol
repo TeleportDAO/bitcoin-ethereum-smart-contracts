@@ -42,6 +42,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override minCollateralDisputer;
     uint public override disputeRewardPercentage;
     uint public override proofRewardPercentage;
+    uint public override epochStartTimestamp;
+    uint[] public override nonFinalizedEpochStartTimestamp;
 
     // Private and internal variables
     mapping(uint => blockData[]) private chain; // height => list of block data
@@ -62,6 +64,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes32 _genesisMerkleRoot, 
         uint256 _height,
         bytes32 _periodStart,
+        uint _periodStartTimestamp,
         address _TeleportDAOToken
     ) {
         // Adds the initial block header to the chain
@@ -76,6 +79,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         chain[_height].push(newblockData);
         blockHeight[_genesisMerkleRoot] = _height;
         blockHeight[_periodStart] = _height - (_height % BitcoinHelper.RETARGET_PERIOD_BLOCKS);
+        epochStartTimestamp = _periodStartTimestamp;
 
         // Relay parameters
         _setFinalizationParameter(3); // todo change to 5
@@ -295,7 +299,29 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: zero input"
         );
 
-        _addBlock(_anchorMerkleRoot, _blockMerkleRoot);
+        _addBlock(_anchorMerkleRoot, _blockMerkleRoot, false);
+
+        return true;
+    }
+
+    function addBlockWithRetarget(
+        bytes32 _anchorMerkleRoot, 
+        bytes32 _blockMerkleRoot,
+        uint256 _blockTimestamp
+    ) external payable nonReentrant whenNotPaused override returns (bool) {
+        // check relayer locks enough collateral
+        require(msg.value >= minCollateralRelayer, "Relay: low collateral");
+        relayersCollateral[_msgSender()] += msg.value;
+        
+        // check inputs
+        require(
+            _blockMerkleRoot != bytes32(0) && _anchorMerkleRoot != bytes32(0), 
+            "Relay: zero input"
+        );
+
+        nonFinalizedEpochStartTimestamp.push(_blockTimestamp);
+        
+        _addBlock(_anchorMerkleRoot, _blockMerkleRoot, true);
 
         return true;
     }
@@ -389,16 +415,15 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     function provideProofWithRetarget(
-        bytes calldata _oldPeriodStartHeader,
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
-        bytes29 _oldStart = _oldPeriodStartHeader.ref(0).tryAsHeader();
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
         bytes29 _headerView = _header.ref(0).tryAsHeader();
 
-        _checkInputSizeProvideProofWithRetarget(_oldStart, _oldEnd, _headerView);
-        _checkRetarget(_oldStart, _oldEnd, _headerView.target());
+        _checkInputSize(_oldEnd, _headerView);
+        _checkEpochEndBlock(_oldEnd);
+        _checkRetarget(_oldEnd.time(), _oldEnd.target(), _headerView.target());
 
         return _checkHeaderProof(_oldEnd, _headerView, true);
     }
@@ -424,51 +449,28 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice Adds headers to storage, performs additional validation of retarget
     /// @dev Works like the other addHeadersWithRetarget; we use this function when relay is paused
     ///      then only owner can add the new blocks (e.g. when a fork happens)
-    /// @param  _oldPeriodStartHeader The first header in the difficulty period being closed
     /// @param  _oldPeriodEndHeader The last header in the difficulty period being closed (anchor of new headers)
     /// @param  _headers A tightly-packed list of 80-byte Bitcoin headers
     /// @return True if successfully written
     function ownerAddHeadersWithRetarget(
-        bytes calldata _oldPeriodStartHeader,
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _headers
     ) external nonReentrant onlyOwner override returns (bool) {
-        bytes29 _oldStart = _oldPeriodStartHeader.ref(0).tryAsHeader();
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
         bytes29 _headersView = _headers.ref(0).tryAsHeaderArray();
         bytes29 _newStart = _headersView.indexHeaderArray(0);
 
-        _checkInputSize(_oldStart, _oldEnd);
-        _checkInputSize(_headersView, _newStart);
+        _checkInputSize(_headersView, _oldEnd);
+        _checkInputSize(_headersView, _newStart); // repeated bcz the func has 2 inputs
 
-        _checkRetarget(_oldStart, _oldEnd, _newStart.target());
+        _checkEpochEndBlock(_oldEnd);
+        _checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
+        nonFinalizedEpochStartTimestamp.push(_newStart.time());
 
         return _ownerAddHeaders(_oldEnd, _headersView, true);
     }
 
-    // todo emit events everywhere
     // todo NatSpec
-
-    function _updateVerifiedAndFinalizedStats() internal {
-        uint lastSubmittedHeight = lastVerifiedHeight + 1;
-        if (chain[lastSubmittedHeight].length != 0) { // if there is any unverified Merkle root
-            // check for a new verified Mekrle root
-            for(uint _idx = 0; _idx < chain[lastSubmittedHeight].length; _idx++) {
-                if (
-                    !_isDisputed(lastSubmittedHeight, _idx) &&
-                    _disputeTimePassed(lastSubmittedHeight, _idx)
-                ) {
-                    _verifyHeader(lastSubmittedHeight, _idx); // verify the Merkle root
-                    // if new block verified, update finalized stats
-                    if (lastVerifiedHeight != lastSubmittedHeight) {
-                        lastVerifiedHeight = lastSubmittedHeight;
-                        _updateFee();
-                        _pruneChain();
-                    }
-                }
-            }
-        }
-    }
 
     // *************** Internal and private functions ***************
 
@@ -578,7 +580,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             bytes29 _header = _headers.indexHeaderArray(i);
             _blockMerkleRoot = _header.merkleRoot();
             _anchorMerkleRoot = _newAnchor.merkleRoot();
-            _addBlock(_anchorMerkleRoot, _blockMerkleRoot);
+            _addBlock(_anchorMerkleRoot, _blockMerkleRoot, _withRetarget);
             // Extract basic info
             uint256 _height = _findHeight(_blockMerkleRoot); // revert if the block is unknown
             uint _idx = _findIndex(_blockMerkleRoot, _height);
@@ -600,10 +602,29 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    // TODO: remove inputs and save times instead (get timestamp of start/end blocks. check it in provideProof/+WithRetarget)
-    function _checkRetarget(bytes29 _oldStart, bytes29 _oldEnd, uint256 _actualTarget) internal view {
-        // Requires that both blocks are known
-        uint256 _startHeight = _findHeight(_oldStart.merkleRoot());
+    function _updateVerifiedAndFinalizedStats() internal {
+        uint lastSubmittedHeight = lastVerifiedHeight + 1;
+        if (chain[lastSubmittedHeight].length != 0) { // if there is any unverified Merkle root
+            // check for a new verified Mekrle root
+            for(uint _idx = 0; _idx < chain[lastSubmittedHeight].length; _idx++) {
+                if (
+                    !_isDisputed(lastSubmittedHeight, _idx) &&
+                    _disputeTimePassed(lastSubmittedHeight, _idx)
+                ) {
+                    _verifyHeader(lastSubmittedHeight, _idx); // verify the Merkle root
+                    // if new block verified, update finalized stats
+                    if (lastVerifiedHeight != lastSubmittedHeight) {
+                        lastVerifiedHeight = lastSubmittedHeight;
+                        _updateFee();
+                        _pruneChain();
+                    }
+                }
+            }
+        }
+    }
+
+    function _checkEpochEndBlock(bytes29 _oldEnd) internal view {
+        // Requires that the block is known
         uint256 _endHeight = _findHeight(_oldEnd.merkleRoot());
 
         // Retargets should happen at 2016 block intervals
@@ -611,20 +632,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _endHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 2015,
             "Relay: wrong end height"
         );
-        require(
-            _endHeight == _startHeight + 2015,
-            "Relay: wrong start height"
-        );
-        require(
-            _oldStart.diff() == _oldEnd.diff(),
-            "Relay: period header difficulties do not match"
-        );
-
+    }
+    
+    function _checkRetarget(uint256 _epochEndTimestamp, uint256 _oldEndTarget, uint256 _actualTarget) internal view {
         /* NB: This comparison looks weird because header nBits encoding truncates targets */
         uint256 _expectedTarget = BitcoinHelper.retargetAlgorithm(
-            _oldStart.target(),
-            _oldStart.time(),
-            _oldEnd.time()
+            _oldEndTarget,
+            epochStartTimestamp,
+            _epochEndTimestamp
         );
         require(
             (_actualTarget & _expectedTarget) == _actualTarget, 
@@ -647,6 +662,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Matchs the stored data with provided data: parent merkle root
         _checkStoredDataMatch(_anchor, _height, _idx);
+
+        // check the provided timestamp was correct
+        if(_withRetarget) {
+            require(
+                nonFinalizedEpochStartTimestamp[_idx] == _header.time(),
+                "Relay: incorrect timestamp"
+            );
+        }
 
         // Checks the proof validity: no retarget & hash link good & enough PoW
         _checkProofValidity(_anchor, _header, _withRetarget);
@@ -746,21 +769,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
     }
 
-    /// @notice Checks the size of addHeader inputs 
-    /// @param  _headerView1 Input to the provideProof functions
-    /// @param  _headerView2 Input to the provideProof functions
-    /// @param  _headerView3 Input to the provideProof functions
-    function _checkInputSizeProvideProofWithRetarget(
-        bytes29 _headerView1, 
-        bytes29 _headerView2,
-        bytes29 _headerView3
-        ) internal pure {
-        require(
-            _headerView1.notNull() && _headerView2.notNull() && _headerView3.notNull(),
-            "Relay: bad args. Check header and array byte lengths."
-        );
-    }
-
     /// @notice             Finds the height of a header by its hash
     /// @dev                Will fail if the header is unknown
     /// @param _hash        The header hash to search for
@@ -816,10 +824,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice Adds merkle root to storage
     /// @dev We do accepet a merkle root on top of an unverified root
     /// @return True if successfully written
-    function _addBlock(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot) internal returns (bool) {
+    function _addBlock(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot, bool _withRetarget) internal returns (bool) {
         // Extract basic info
         uint256 _anchorHeight = _findHeight(_anchorMerkleRoot); // revert if the block is unknown
         uint256 _height = _anchorHeight + 1;
+
+        // check if introduces a new epoch
+        if(_withRetarget) {
+            require(_anchorHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 2015,
+                "Relay: call addBlock");
+        } else {
+            require(_anchorHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS != 2015,
+                "Relay: call addBlockWithRetarget");
+        }
 
         /*
             Steps:
@@ -966,6 +983,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
                 stableIdx = _findIndex(parentMerkleRoot, currentHeight-1);
                 _idx--;
                 currentHeight--;
+            }
+
+            // if the finalized block is the start of the epoch, save its timestamp
+            if (currentHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 0) {
+                epochStartTimestamp = nonFinalizedEpochStartTimestamp[stableIdx];
+                delete nonFinalizedEpochStartTimestamp; // TODO: check if this works correctly
             }
 
             // Keep the finalized Merkle root and delete rest of roots

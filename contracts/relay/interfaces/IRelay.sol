@@ -179,6 +179,10 @@ interface IRelay {
 
     function proofRewardPercentage() external view returns(uint);
 
+    function epochStartTimestamp() external view returns(uint);
+
+    function nonFinalizedEpochStartTimestamp(uint) external view returns(uint);
+
     // State-changing functions
 
     function pauseRelay() external;
@@ -220,6 +224,12 @@ interface IRelay {
 
     function addBlock(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot) external payable returns (bool);
 
+    function addBlockWithRetarget(
+        bytes32 _anchorMerkleRoot, 
+        bytes32 _blockMerkleRoot,
+        uint256 _blockTimestamp
+    ) external payable returns (bool);
+
     function disputeBlock(bytes32 _blockMerkleRoot) external payable returns (bool);
 
     function getDisputeReward(bytes32 _blockMerkleRoot) external returns (bool);
@@ -227,7 +237,6 @@ interface IRelay {
     function provideProof(bytes calldata _anchor, bytes calldata _header) external returns (bool);
 
     function provideProofWithRetarget(
-        bytes calldata _oldPeriodStartHeader,
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
     ) external returns (bool);
@@ -235,7 +244,6 @@ interface IRelay {
     function ownerAddHeaders(bytes calldata _anchor, bytes calldata _headers) external returns (bool);
 
     function ownerAddHeadersWithRetarget(
-        bytes calldata _oldPeriodStartHeader,
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _headers
     ) external returns (bool);

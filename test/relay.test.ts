@@ -105,11 +105,13 @@ describe("Relay", async () => {
         // todo: below should be Merkle root but for now since it is already some hash we don't care
         let _periodStart = await bitcoinRESTAPI.getHexBlockHash(_height - (_height % 2016)); 
         _periodStart = '0x' + revertBytes32(_periodStart);
+        let _startTimestamp = 100000000; // todo: correct it
         
         const relay1 = await relayFactory.deploy(
             _genesisMerkleRoot,
             _heightBigNumber,
             _periodStart,
+            _startTimestamp,
             ZERO_ADDRESS
         );
 
@@ -122,6 +124,7 @@ describe("Relay", async () => {
         _genesisMerkleRoot: any,
         _genesisHeight: any,
         _periodStart: any,
+        _startTimestamp: any,
         _signer?: Signer
     ): Promise<Relay> => {
         const relayFactory = new Relay__factory(
@@ -135,6 +138,7 @@ describe("Relay", async () => {
             _genesisMerkleRoot,
             _heightBigNumber,
             _periodStart,
+            _startTimestamp,
             ZERO_ADDRESS
         );
 
@@ -698,6 +702,7 @@ describe("Relay", async () => {
                 genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
+                0,
                 ZERO_ADDRESS
             );
         });
@@ -709,6 +714,7 @@ describe("Relay", async () => {
                     ZERO_HASH,
                     genesis.height,
                     genesis.merkle_root,
+                    0,
                     ZERO_ADDRESS
                 )
             ).to.revertedWith("Relay: genesis root is zero")
@@ -742,6 +748,7 @@ describe("Relay", async () => {
                 genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
+                0,
                 ZERO_ADDRESS
             );
         });
@@ -764,6 +771,7 @@ describe("Relay", async () => {
                 genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
+                0,
                 ZERO_ADDRESS
             );
         });
@@ -790,6 +798,7 @@ describe("Relay", async () => {
                 genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
+                0,
                 ZERO_ADDRESS
             );
         });
@@ -815,6 +824,7 @@ describe("Relay", async () => {
                 genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
+                0,
                 ZERO_ADDRESS
             );
             relaySigner2 = await relay2.connect(signer2);
@@ -942,6 +952,7 @@ describe("Relay", async () => {
                 genesis.merkle_root,
                 genesis.height,
                 orphan_562630.merkle_root,
+                0,
                 mockTDT.address
             );
             await relay2.setMinCollateralRelayer(minCollateralRelayer);
