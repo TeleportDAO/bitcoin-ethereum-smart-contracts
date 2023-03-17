@@ -24,6 +24,7 @@ import { Relay } from "../src/types/Relay";
 import { Relay__factory } from "../src/types/factories/Relay__factory";
 import { deployMockContract, MockContract } from "@ethereum-waffle/mock-contract";
 import { takeSnapshot, revertProvider } from "./block_utils";
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 
 function revertBytes32(input: any) {
     let output = input.match(/[a-fA-F0-9]{2}/g).reverse().join('')
@@ -47,8 +48,8 @@ describe("Relay", async () => {
     let ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
     let bitcoinRESTAPI: any;
     let merkleRoots: any;
-    let minDisputeTime = 10;
-    let minProofTime = 10;
+    let disputeTime = 9*60;
+    let proofTime = 6*60;
     let minCollateralDisputer = '100000000000000000'; // = 0.1 * 10 ^ 18
     let minCollateralRelayer = BigNumber.from(10); // = ? * 10 ^ 18
     let disputeRewardPercentage = 100;
@@ -966,11 +967,15 @@ describe("Relay", async () => {
                 mockTDT.address
             );
             await relay2.setMinCollateralRelayer(minCollateralRelayer);
-
+            expect(
+                await relay2.setDisputeTime(BigNumber.from(disputeTime))
+            ).to.emit(relay2, "NewDisputeTime");
+            expect(
+                await relay2.setProofTime(BigNumber.from(proofTime))
+            ).to.emit(relay2, "NewProofTime");
         });
 
         it('errors if the smart contract is paused', async () => {
-
             // pause the relay1
             await relay2.pauseRelay();
 
@@ -1007,98 +1012,54 @@ describe("Relay", async () => {
         //     ).to.revertedWith("Relay: anchor must be 80 bytes")
         // });
 
-    //     it('errors if it encounters a retarget on an external call', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
+        it('errors if the length of the merkle root is not correct', async () => {
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root + '0',
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther("0.1")}
+                )
+            ).to.reverted
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root + '0',
+                    {value: ethers.utils.parseEther("0.1")}
+                )
+            ).to.reverted
+        });
 
-    //         let badHeaders = '0x0000002073bd2184edd9c4fc76642ea6754ee40136970efc10c4190000000000000000000296ef123ea96da5cf695f22bf7d94be87d49db1ad7ac371ac43c4da4161c8c216349c5ba11928170d38782b0000002073bd2184edd9c4fc76642ea6754ee40136970efc10c4190000000000000000005af53b865c27c6e9b5e5db4c3ea8e024f8329178a79ddb39f7727ea2fe6e6825d1349c5ba1192817e2d951590000002073bd2184edd9c4fc76642ea6754ee40136970efc10c419000000000000000000c63a8848a448a43c9e4402bd893f701cd11856e14cbbe026699e8fdc445b35a8d93c9c5ba1192817b945dc6c00000020f402c0b551b944665332466753f1eebb846a64ef24c71700000000000000000033fc68e070964e908d961cd11033896fa6c9b8b76f64a2db7ea928afa7e304257d3f9c5ba11928176164145d0000ff3f63d40efa46403afd71a254b54f2b495b7b0164991c2d22000000000000000000f046dc1b71560b7d0786cfbdb25ae320bd9644c98d5c7c77bf9df05cbe96212758419c5ba1192817a2bb2caa00000020e2d4f0edd5edd80bdcb880535443747c6b22b48fb6200d0000000000000000001d3799aa3eb8d18916f46bf2cf807cb89a9b1b4c56c3f2693711bf1064d9a32435429c5ba1192817752e49ae0000002022dba41dff28b337ee3463bf1ab1acf0e57443e0f7ab1d000000000000000000c3aadcc8def003ecbd1ba514592a18baddddcd3a287ccf74f584b04c5c10044e97479c5ba1192817c341f595';
+        it('appends new links to the chain and fires an event', async () => {
+            expect(
+                await relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther("0.1")}
+                )
+            ).to.emit(relay2, "BlockAdded")
+        });
 
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 badHeaders
-    //             )
-    //         ).to.revertedWith("Relay: unexpected retarget")
-    //     });
-
-    //     it('errors if the header array is not a multiple of 80 bytes', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-
-    //         let badHeaders = headers.substring(0, 8 + 5 * 160)
-
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 badHeaders
-    //             )
-    //         ).to.revertedWith("Relay: header array length must be divisible by 80")
-    //     });
-
-    //     it('errors if a header work is too low', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-
-    //         let badHeaders = `${headers}${'00'.repeat(80)}`
-
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 badHeaders
-    //             )
-    //         // ).to.revertedWith("Relay: insufficient work")
-    //         ).to.reverted; // above should be uncommented when a proper input is given
-    //         // now it reverts before being catched in the expect that we want -> it has invalid target
-
-    //     });
-
-    //     it('errors if the target changes mid-chain', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-
-    //         let badHeaders = utils.concatenateHexStrings([headers, REGULAR_CHAIN.badHeader.hex]);
-
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 badHeaders
-    //             )
-    //         ).to.revertedWith("Relay: target changed unexpectedly")
-
-    //     });
-
-    //     it('errors if a prevhash link is broken', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-
-    //         let badHeaders = utils.concatenateHexStrings([headers, chain[15].hex]);
-
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 badHeaders
-    //             )
-    //         ).to.revertedWith("Relay: no link")
-
-    //     });
-
-    //     it('appends new links to the chain and fires an event', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-
-    //         expect(
-    //             await relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
-    //     });
+        it('appends new links to the chain and previous block gets verified', async () => {
+            // add 1 block
+            expect(
+                await relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther("0.1")}
+                )
+            ).to.emit(relay2, "BlockAdded")
+            let newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            // add another block on top
+            expect(
+                await relay2.addBlock(
+                    chain[0].merkle_root,
+                    chain[1].merkle_root,
+                    {value: ethers.utils.parseEther("0.1")}
+                )
+            ).to.emit(relay2, "BlockAdded").to.emit(relay2, "BlockVerified")
+            // relayer of the first block gets back its collateral
+        });
 
     //     it("contract has no TNT but doesn't revert when paying a relayer", async () => {
     //         // initialize mock contract
