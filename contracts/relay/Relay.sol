@@ -44,6 +44,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override proofRewardPercentage;
     uint public override epochStartTimestamp;
     uint[] public override nonFinalizedEpochStartTimestamp;
+    uint public override currTarget;
+    uint[] public override nonFinalizedCurrTarget;
 
     // Private and internal variables
     mapping(uint => blockData[]) private chain; // height => list of block data
@@ -65,6 +67,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint256 _height,
         bytes32 _periodStart,
         uint _periodStartTimestamp,
+        uint _currTarget,
         address _TeleportDAOToken
     ) {
         // Adds the initial block header to the chain
@@ -80,6 +83,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         blockHeight[_genesisMerkleRoot] = _height;
         blockHeight[_periodStart] = _height - (_height % BitcoinHelper.RETARGET_PERIOD_BLOCKS);
         epochStartTimestamp = _periodStartTimestamp;
+        currTarget = _currTarget;
 
         // Relay parameters
         _setFinalizationParameter(3); // todo change to 5
@@ -307,7 +311,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     function addBlockWithRetarget(
         bytes32 _anchorMerkleRoot, 
         bytes32 _blockMerkleRoot,
-        uint256 _blockTimestamp
+        uint256 _blockTimestamp,
+        uint256 _newTarget
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         // check relayer locks enough collateral
         require(msg.value >= minCollateralRelayer, "Relay: low collateral");
@@ -320,6 +325,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
 
         nonFinalizedEpochStartTimestamp.push(_blockTimestamp);
+        nonFinalizedCurrTarget.push(_newTarget);
         
         _addBlock(_anchorMerkleRoot, _blockMerkleRoot, true);
 
@@ -663,11 +669,15 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // Matchs the stored data with provided data: parent merkle root
         _checkStoredDataMatch(_anchor, _height, _idx);
 
-        // check the provided timestamp was correct
+        // check the provided timestamp and target are correct
         if(_withRetarget) {
             require(
                 nonFinalizedEpochStartTimestamp[_idx] == _header.time(),
                 "Relay: incorrect timestamp"
+            );
+            require(
+                nonFinalizedCurrTarget[_idx] == _header.target(),
+                "Relay: incorrect target"
             );
         }
 
@@ -688,9 +698,24 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
     }
 
+    // @notice              Finds an ancestor for a block by its merkle root
+    /// @dev                Will fail if the header is unknown
+    /// @param _merkleRoot  The header merkle root to search for
+    /// @param _offset      The depth which is going to be searched
+    /// @return             The height of the header, or error if unknown
+    function _findAncestor(bytes32 _merkleRoot, uint256 _offset) internal view returns (bytes32) {
+        bytes32 _current = _merkleRoot;
+        for (uint256 i = 0; i < _offset; i++) {
+            _current = parentRoot[_current];
+        }
+        require(_current != bytes32(0), "BitcoinRelay: unknown ancestor");
+        return _current;
+    }
+
+    // TODO: add checking the timestamp not be too high
     /// @notice Checks the validity of proof
     /// @dev Checks that _anchor is parent of _header and it has sufficient PoW
-    function _checkProofValidity( // TODO: save prevTarget, currTarget and check the proof against them
+    function _checkProofValidity(
         bytes29 _anchor, 
         bytes29 _header, 
         bool _withRetarget
@@ -700,6 +725,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _anchorHeight = _findHeight(_anchorMerkleRoot); // Reverts if the header doesn't exist
         uint256 _height = _anchorHeight + 1;
         uint256 _target = _header.target();
+        uint _idxInEpoch = _height % BitcoinHelper.RETARGET_PERIOD_BLOCKS;
 
         // Checks targets are same in the case of no-retarget
         require(
@@ -707,9 +733,27 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: unexpected retarget"
         );
 
+        // check the target matches the storage
+        if(
+            !_withRetarget &&
+            _idxInEpoch < finalizationParameter &&
+            nonFinalizedCurrTarget.length != 0
+        ) {
+            // check _target matches with its ancestor's saved target in nonFinalizedCurrTarget
+            require(
+                nonFinalizedCurrTarget[_findIndex(_findAncestor(_header.merkleRoot(), _idxInEpoch), _height - _idxInEpoch)]
+                == _target
+            );
+        } else {
+            require(
+                _withRetarget || currTarget == _target,
+                "Relay: wrong target"
+            );
+        }
+
         // Blocks that are multiplies of 2016 should be submitted using provideProofWithRetarget
         require(
-            _withRetarget || _height % BitcoinHelper.RETARGET_PERIOD_BLOCKS != 0,
+            _withRetarget || _idxInEpoch != 0,
             "Relay: wrong func"
         );
 
@@ -985,10 +1029,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
                 currentHeight--;
             }
 
-            // if the finalized block is the start of the epoch, save its timestamp
+            // if the finalized block is the start of the epoch, save its timestamp and target
             if (currentHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 0) {
                 epochStartTimestamp = nonFinalizedEpochStartTimestamp[stableIdx];
                 delete nonFinalizedEpochStartTimestamp; // TODO: check if this works correctly
+                currTarget = nonFinalizedCurrTarget[stableIdx];
+                delete nonFinalizedCurrTarget; // TODO: check if this works correctly
             }
 
             // Keep the finalized Merkle root and delete rest of roots

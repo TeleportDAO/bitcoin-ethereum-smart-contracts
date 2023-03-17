@@ -183,6 +183,10 @@ interface IRelay {
 
     function nonFinalizedEpochStartTimestamp(uint) external view returns(uint);
 
+    function currTarget() external view returns(uint);
+
+    function nonFinalizedCurrTarget(uint) external view returns(uint);
+
     // State-changing functions
 
     function pauseRelay() external;
@@ -227,7 +231,8 @@ interface IRelay {
     function addBlockWithRetarget(
         bytes32 _anchorMerkleRoot, 
         bytes32 _blockMerkleRoot,
-        uint256 _blockTimestamp
+        uint256 _blockTimestamp,
+        uint256 _newTarget
     ) external payable returns (bool);
 
     function disputeBlock(bytes32 _blockMerkleRoot) external payable returns (bool);
