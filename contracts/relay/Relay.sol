@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "hardhat/console.sol";
 
 contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
@@ -39,7 +40,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     address public override TeleportDAOToken;
     bytes32 public override relayGenesisMerkleRoot; // Initial Merkle root of relay
     uint public override minCollateralRelayer;
+    uint public override numCollateralRelayer;
     uint public override minCollateralDisputer;
+    uint public override numCollateralDisputer;
     uint public override disputeRewardPercentage;
     uint public override proofRewardPercentage;
     uint public override epochStartTimestamp;
@@ -86,7 +89,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         currTarget = _currTarget;
 
         // Relay parameters
-        _setFinalizationParameter(3); // todo change to 5
+        _setFinalizationParameter(5);
         initialHeight = _height;
         lastVerifiedHeight = _height;
         
@@ -146,7 +149,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice Getter for available target native token in contract
     /// @return Amount of target blockchain native token available in Relay
     function availableTNT() external view override returns (uint) {
-        return address(this).balance;
+        return address(this).balance - minCollateralDisputer * numCollateralDisputer - minCollateralRelayer * numCollateralRelayer;
     }
 
     /// @notice Finds the height of a Merkle root
@@ -296,6 +299,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // check relayer locks enough collateral
         require(msg.value >= minCollateralRelayer, "Relay: low collateral");
         relayersCollateral[_msgSender()] += msg.value;
+        numCollateralRelayer ++;
         
         // check inputs
         require(
@@ -317,6 +321,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         // check relayer locks enough collateral
         require(msg.value >= minCollateralRelayer, "Relay: low collateral");
         relayersCollateral[_msgSender()] += msg.value;
+        numCollateralRelayer ++;
         
         // check inputs
         require(
@@ -350,6 +355,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Saves collateral amount
         disputersCollateral[_msgSender()] += msg.value;
+        numCollateralDisputer ++;
         uint _height = _findHeight(_blockMerkleRoot); // Reverts if header does not exist
         uint _idx = _findIndex(_blockMerkleRoot, _height);
         require(
@@ -405,6 +411,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             minCollateralRelayer * disputeRewardPercentage / ONE_HUNDRED_PERCENT
                 + minCollateralDisputer
         );
+        numCollateralRelayer --;
+        numCollateralDisputer --;
 
         return true;
     }
@@ -732,6 +740,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _withRetarget || _anchor.target() == _target,
             "Relay: unexpected retarget"
         );
+        console.log("block target in contract", _target);
 
         // check the target matches the storage
         if(
@@ -783,6 +792,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             minCollateralRelayer // TODO: send the rest to the treasury
                 + minCollateralDisputer * proofRewardPercentage / ONE_HUNDRED_PERCENT
         ); 
+        numCollateralRelayer --;
+        numCollateralDisputer --;
         emit BlockVerified(
             _height,
             chain[_height][_idx].merkleRoot,
@@ -793,8 +804,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     function _checkProofCanBeProvided(uint _height, uint _idx) internal view {
-        // Should not verified before
-        require(!chain[_height - 1][_idx].verified, "Relay: already verified");
+        // Should not been verified before
+        require(!chain[_height][_idx].verified, "Relay: already verified");
         // Proof time should not passed
         require(
             (_isDisputed(_height, _idx) && !_proofTimePassed(_height, _idx)) 
@@ -849,12 +860,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     function _verifyHeader(uint _height, uint _idx) internal {
         chain[_height][_idx].verified = true;
         
+        relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
         // Sends back the Relayer collateral
         Address.sendValue(
             payable(chain[_height][_idx].relayer), 
             minCollateralRelayer
         );
-        relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
+        numCollateralRelayer --;
 
         emit BlockVerified(
             _height,
@@ -977,7 +989,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Send reward in TNT
         bool sentTNT;
-        if (address(this).balance > rewardAmountInTNT && rewardAmountInTNT > 0) {
+        if (
+            address(this).balance - minCollateralDisputer * numCollateralDisputer - minCollateralRelayer * numCollateralRelayer 
+                > rewardAmountInTNT && rewardAmountInTNT > 0
+        ) {
             // note: no need to revert if failed
             (sentTNT,) = payable(_relayer).call{value: rewardAmountInTNT}("");
         }

@@ -31,6 +31,16 @@ function revertBytes32(input: any) {
     return output;
 };
 
+function getTargetFromDiff(input: any) {
+    const two = new BN(2);
+    const a = new BN(208);
+    const b = new BN(16);
+    const c = new BN(1);
+    const D = two.pow(a).mul(two.pow(b).sub(c));
+    let target = D.div(new BN(input));
+    return target;
+};
+
 describe("Relay", async () => {
 
     let relayFactory: Relay__factory;
@@ -51,7 +61,8 @@ describe("Relay", async () => {
     let disputeTime = 9*60;
     let proofTime = 6*60;
     let minCollateralDisputer = '100000000000000000'; // = 0.1 * 10 ^ 18
-    let minCollateralRelayer = BigNumber.from(10); // = ? * 10 ^ 18
+    let minCollateralRelayer = BigNumber.from(1000000000000000); // = 0.001 * 10 ^ 18
+    let relayerCollateral = '0.001';
     let disputeRewardPercentage = 100;
 
     let mockTDT: MockContract;
@@ -414,6 +425,38 @@ describe("Relay", async () => {
     //             )
     //         ).to.emit(relayTest, "BlockFinalized")
     //     });
+
+        // it('appends multiple blocks in one height', async () => {
+        //     let newTimestamp;
+        //     // initialize mock contract
+        //     await setTDTbalanceOf(0);
+        //     await setTDTtransfer(true);
+        //     // add 1 block
+        //     relay2.addBlock(
+        //         genesis.merkle_root,
+        //         chain[0].merkle_root,
+        //         {value: ethers.utils.parseEther(relayerCollateral)}
+        //     )
+        //     for (let i = 0; i < 7; i++) {
+        //         newTimestamp = await time.latest() + disputeTime;
+        //         await time.setNextBlockTimestamp(newTimestamp);
+        //         // add another block on top
+        //         relay2.addBlock(
+        //             chain[i].merkle_root,
+        //             chain[i+1].merkle_root,
+        //             {value: ethers.utils.parseEther(relayerCollateral)}
+        //         )
+        //     }
+        //     newTimestamp = await time.latest() + disputeTime;
+        //     await time.setNextBlockTimestamp(newTimestamp);
+        //     // add another block in the same height
+        //     relay2.addBlock(
+        //         chain[7].merkle_root,
+        //         orphan_562630.merkle_root,
+        //         {value: ethers.utils.parseEther(relayerCollateral)}
+        //     )
+        //     // todo: check proof for both blocks in height 8
+        // });
     // });
 
     // describe('Unfinalizing a finalized block header', async () => {
@@ -788,7 +831,7 @@ describe("Relay", async () => {
 
             let relaySigner1 = await relay2.connect(signer1);
             let relayDeployer = await relay2.connect(deployer);
-            // owner pauses the relay1
+            // owner pauses the relay
             await relayDeployer.pauseRelay();
 
             await expect(
@@ -863,7 +906,7 @@ describe("Relay", async () => {
                 await relay2.setFinalizationParameter(6)
             ).to.emit(
                 relay2, "NewFinalizationParameter"
-            ).withArgs(3, 6);
+            ).withArgs(5, 6);
 
             expect(
                 await relay2.finalizationParameter()
@@ -967,23 +1010,23 @@ describe("Relay", async () => {
                 mockTDT.address
             );
             await relay2.setMinCollateralRelayer(minCollateralRelayer);
-            expect(
-                await relay2.setDisputeTime(BigNumber.from(disputeTime))
+            await expect(
+                relay2.setDisputeTime(BigNumber.from(disputeTime))
             ).to.emit(relay2, "NewDisputeTime");
-            expect(
-                await relay2.setProofTime(BigNumber.from(proofTime))
+            await expect(
+                relay2.setProofTime(BigNumber.from(proofTime))
             ).to.emit(relay2, "NewProofTime");
         });
 
         it('errors if the smart contract is paused', async () => {
-            // pause the relay1
+            // pause the relay
             await relay2.pauseRelay();
 
             await expect(
                 relay2.addBlock(
                     genesis.merkle_root,
                     chain[0].merkle_root,
-                    {value: ethers.utils.parseEther("0.1")}
+                    {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.revertedWith("Pausable: paused")
         });
@@ -998,248 +1041,371 @@ describe("Relay", async () => {
             ).to.revertedWith("Relay: low collateral")
         });
 
-        // it('errors if the anchor is unknown', async () => {
-        //     // initialize mock contract
-        //     await setTDTbalanceOf(0);
-        //     await setTDTtransfer(true);
-
-        //     await expect(
-        //         relay2.addBlock(
-        //             '0x00',
-        //             chain[1].merkle_root,
-        //             {value: ethers.utils.parseEther("0.1")}
-        //         )
-        //     ).to.revertedWith("Relay: anchor must be 80 bytes")
-        // });
+        it('errors if the anchor is unknown', async () => {
+            await expect(
+                relay2.addBlock(
+                    chain[0].merkle_root,
+                    chain[1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: unknown block")
+        });
 
         it('errors if the length of the merkle root is not correct', async () => {
             await expect(
                 relay2.addBlock(
                     genesis.merkle_root + '0',
                     chain[0].merkle_root,
-                    {value: ethers.utils.parseEther("0.1")}
+                    {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.reverted
             await expect(
                 relay2.addBlock(
                     genesis.merkle_root,
                     chain[0].merkle_root + '0',
-                    {value: ethers.utils.parseEther("0.1")}
+                    {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.reverted
         });
 
         it('appends new links to the chain and fires an event', async () => {
-            expect(
-                await relay2.addBlock(
+            await expect(
+                relay2.addBlock(
                     genesis.merkle_root,
                     chain[0].merkle_root,
-                    {value: ethers.utils.parseEther("0.1")}
+                    {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.emit(relay2, "BlockAdded")
         });
 
         it('appends new links to the chain and previous block gets verified', async () => {
+            let relay2Deployer = await relay2.connect(deployer);
+            let relay2Signer1 = await relay2.connect(signer1);
             // add 1 block
-            expect(
-                await relay2.addBlock(
+            await expect(
+                relay2Deployer.addBlock(
                     genesis.merkle_root,
                     chain[0].merkle_root,
-                    {value: ethers.utils.parseEther("0.1")}
+                    {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.emit(relay2, "BlockAdded")
+
+            let balanceBefore = await deployer.getBalance();
             let newTimestamp = await time.latest() + disputeTime;
             await time.setNextBlockTimestamp(newTimestamp);
             // add another block on top
-            expect(
-                await relay2.addBlock(
+            await expect(
+                relay2Signer1.addBlock(
                     chain[0].merkle_root,
                     chain[1].merkle_root,
-                    {value: ethers.utils.parseEther("0.1")}
+                    {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.emit(relay2, "BlockAdded").to.emit(relay2, "BlockVerified")
+
             // relayer of the first block gets back its collateral
+            let balanceAfter = await deployer.getBalance();
+            expect((balanceAfter.sub(balanceBefore)).toString() == relayerCollateral);
         });
 
-    //     it("contract has no TNT but doesn't revert when paying a relayer", async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
+        it('appends new links to the chain and a block gets finalized', async () => {
+            let newTimestamp;
+            // initialize mock contract
+            await setTDTbalanceOf(0);
+            await setTDTtransfer(true);
 
-    //         let relay2Balance0 = await relay2.provider.getBalance(relay2.address);
-    //         expect(relay2Balance0).to.equal(BigNumber.from(0));
-    //         expect(
-    //             await relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
-    //         .and.emit(relay2, "BlockFinalized")
-    //         let relay2Balance1 = await relay2.provider.getBalance(relay2.address);
-    //         expect(relay2Balance1).to.equal(BigNumber.from(0));
-    //     });
+            // add 1 block
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+            for (let i = 0; i < 4; i++) {
+                newTimestamp = await time.latest() + disputeTime;
+                await time.setNextBlockTimestamp(newTimestamp);
+                // add another block on top
+                await expect(
+                    relay2.addBlock(
+                        chain[i].merkle_root,
+                        chain[i+1].merkle_root,
+                        {value: ethers.utils.parseEther(relayerCollateral)}
+                    )
+                ).to.emit(relay2, "BlockAdded").to.emit(relay2, "BlockVerified")
+            }
+            newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            // add another block on top
+            await expect(
+                relay2.addBlock(
+                    chain[4].merkle_root,
+                    chain[5].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded").to.emit(relay2, "BlockFinalized")
+        });
 
-    //     it("contract has no TNT but has some TDT so rewards relayer only in TDT", async () => {
-    //         const rewardAmountInTDTtest = 100;
-    //         await relay2.setRewardAmountInTDT(rewardAmountInTDTtest);
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(2 * rewardAmountInTDTtest);
-    //         expect (await relay2.availableTDT()).equal(2 * rewardAmountInTDTtest)
-    //         await setTDTtransfer(true);
+        it('cannot append a new link when prev dispute time has not passed', async () => {
+            // add 1 block
+            await relay2.addBlock(
+                genesis.merkle_root,
+                chain[0].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
 
-    //         expect(
-    //             await relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
-    //         .and.emit(relay2, "BlockFinalized")
-    //     });
+            let newTimestamp = await time.latest() + disputeTime - 1;
+            await time.setNextBlockTimestamp(newTimestamp);
+            // add another block on top
+            await expect(
+                relay2.addBlock(
+                    chain[0].merkle_root,
+                    chain[1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: not verified")
+        });
 
-    //     it("fails in sending reward in TDT but submission goes through successfully", async () => {
-    //         const rewardAmountInTDTtest = 100;
-    //         await relay2.setRewardAmountInTDT(rewardAmountInTDTtest);
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(2 * rewardAmountInTDTtest);
-    //         await setTDTtransfer(false);
+        it('cannot append a replica', async () => {
+            // add 1 block
+            await relay2.addBlock(
+                genesis.merkle_root,
+                chain[0].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            let newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            // add another block on top
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: already submitted")
+        });
 
-    //         await expect(
-    //             relay2.addHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).to.revertedWith("SafeERC20: ERC20 operation did not succeed")
-    //         // TODO: what's a favorable functionality? to be reverted or passed?
-    //         // ).to.emit(relay2, "BlockAdded")
-    //         // .and.emit(relay2, "BlockFinalized")
-    //     });
+        it("contract has no TNT but doesn't revert when paying a relayer", async () => {
+            let relay2Balance0 = await relay2.availableTNT();
+            expect(relay2Balance0).to.equal(BigNumber.from(0));
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+            let relay2Balance1 = await relay2.availableTNT();
+            expect(relay2Balance1).to.equal(BigNumber.from(0));
+        });
 
-    //     it("contract has enough TNT so pays the relayer", async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
+        it("contract has no TNT but has some TDT so rewards relayer only in TDT", async () => {
+            const rewardAmountInTDTtest = 100;
+            await relay2.setRewardAmountInTDT(rewardAmountInTDTtest);
+            // initialize mock contract
+            await setTDTbalanceOf(2 * rewardAmountInTDTtest);
+            expect (await relay2.availableTDT()).equal(2 * rewardAmountInTDTtest)
+            await setTDTtransfer(true);
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+        });
 
-    //         let relayer1 = await relay2.connect(signer1);
-    //         let relayer2 = await relay2.connect(signer3);
-    //         let user = await relay2.connect(signer2);
+        it("fails in sending reward in TDT but submission goes through successfully", async () => {
+            const rewardAmountInTDTtest = 100;
+            await relay2.setRewardAmountInTDT(rewardAmountInTDTtest);
+            // initialize mock contract
+            await setTDTbalanceOf(2 * rewardAmountInTDTtest);
+            await setTDTtransfer(false);
 
-    //         // submit blocks 0 to 3
-    //         await relayer1.addHeaders(
-    //             genesis.merkle_root,
-    //             chain[0].hex
-    //         )
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+        });
 
-    //         // check relayer2's balance
-    //         let relayerBalance0 = await signer3.getBalance();
+        it("contract has enough TNT so pays the relayer", async () => {
+            // initialize mock contract
+            await setTDTbalanceOf(0);
+            await setTDTtransfer(true);
 
-    //         // relayer adds block 1
-    //         let tx = await relayer2.addHeaders(
-    //             chain[0].hex,
-    //             chain[1].hex
-    //         )
+            let relayer1 = await relay2.connect(signer1);
+            let relayer2 = await relay2.connect(signer2);
+            let user = await relay2.connect(signer3);
+
+            let newTimestamp;
+
+            // check relayer1's balance
+            let relayer2Balance0 = await signer2.getBalance();
+            // relayer1 submits block 0
+            await relayer1.addBlock(
+                genesis.merkle_root,
+                chain[0].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            // relayer2 submits block 1
+            newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            let tx = await relayer2.addBlock(
+                chain[0].merkle_root,
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            // relayer1 submits blocks 2 to 6
+            for (let i = 1; i < 6; i++) {
+                newTimestamp = await time.latest() + disputeTime;
+                await time.setNextBlockTimestamp(newTimestamp);
+                await relayer1.addBlock(
+                    chain[i].merkle_root,
+                    chain[i+1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            }
+            // check relayer1's balance
+            let relayer2Balance1 = await signer2.getBalance();
+
+            // set the correct submissionGasUsed
+            let txInfo = await tx.wait();
+            await relay2.setSubmissionGasUsed(txInfo.cumulativeGasUsed)
             
-    //         // check relayer2's balance
-    //         let relayerBalance1 = await signer3.getBalance();
+            // check relay smart contract balance
+            let relay2Balance0 = await relay2.availableTNT();
+            expect(relay2Balance0).to.equal(BigNumber.from(0));
 
-    //         // set the correct submissionGasUsed
-    //         let txInfo = await tx.wait();
-    //         await relay2.setSubmissionGasUsed(txInfo.cumulativeGasUsed)
-
-    //         // relayer adds blocks 2 and 3
-    //         for (let i = 2; i < 4; i++) {
-    //             await expect(
-    //                 relayer1.addHeaders(
-    //                     chain[i - 1].hex,
-    //                     chain[i].hex
-    //                 )
-    //             ).to.emit(relay2, "BlockAdded")
-    //         }
+            // 2 queries go for block 0 which is finalized
+            let fee = await relay2.getBlockUsageFee(chain[0].height, 0);
+            for (let i = 0; i < 2; i++) {
+                await user.checkTxProof(
+                    "0x995fcdd8736564c08a9c0cd873729fb0e746e9530e168bae93dc0a53c1c2b15e",
+                    chain[0].height,
+                    "0xaa6c8fafbe800d8159d3a266ab3fec99a7aea5115baca77adfe4658d377ed9d9e23afa26ed94d660cb4ae98a3878de76641d82d4a95b39a2d549fe1d0dc3717a92a5829d173ebb5edebb57726a92ba6527ac27a49b11642cb390ef88d7ad2c8f65b07be3eafac4a7a40ec24835b7c4de496211ae40d603b27abe0f066691093fe99acfe9d27688865c341ea216316a693e76f0df978b9dbe971205861e741121",
+                    0,
+                    {value: fee}
+                )
+            }
             
-    //         // check relay1 smart contract balance
-    //         let relay2Balance0 = await relay2.provider.getBalance(relay2.address);
-    //         expect(relay2Balance0).to.equal(BigNumber.from(0));
+            // check relay smart contract balance
+            let relay2Balance1 = await relay2.availableTNT();
+            expect(relay2Balance1).to.equal(fee.mul(2));
 
-    //         // 2 queries go for block 0 which is finalized
-    //         let fee = await relay2.getBlockHeaderFee(chain[0].height, 0);
-    //         for (let i = 0; i < 2; i++) {
-    //             await user.checkTxProof(
-    //                 "0x995fcdd8736564c08a9c0cd873729fb0e746e9530e168bae93dc0a53c1c2b15e",
-    //                 chain[0].height,
-    //                 "0xaa6c8fafbe800d8159d3a266ab3fec99a7aea5115baca77adfe4658d377ed9d9e23afa26ed94d660cb4ae98a3878de76641d82d4a95b39a2d549fe1d0dc3717a92a5829d173ebb5edebb57726a92ba6527ac27a49b11642cb390ef88d7ad2c8f65b07be3eafac4a7a40ec24835b7c4de496211ae40d603b27abe0f066691093fe99acfe9d27688865c341ea216316a693e76f0df978b9dbe971205861e741121",
-    //                 0,
-    //                 {value: fee}
-    //             )
-    //         }
+            // check relayer2's balance
+            let relayer2Balance2 = await signer2.getBalance();
             
-    //         // check relay1 smart contract balance
-    //         let relay2Balance1 = await relay2.provider.getBalance(relay2.address);
-    //         expect(relay2Balance1).to.equal(fee.mul(2));
+            // relayer1 submits block 7 (so block 6 gets verified and block 1 gets finalized and reward is paid to the relayer)
+            newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            await expect(
+                relayer1.addBlock(
+                    chain[6].merkle_root,
+                    chain[7].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockFinalized");
 
-    //         // check relayer2's balance
-    //         let relayerBalance2 = await signer3.getBalance();
+            // check relayer2's balance
+            let relayer2Balance3 = await signer2.getBalance();
 
-    //         // submit block 4 (so block 1 gets finalized and reward is paid to the relayer)
-    //         expect(
-    //             await relayer1.addHeaders(
-    //                 chain[3].hex,
-    //                 chain[4].hex
-    //             )
-    //         ).emit(relay2, "BlockFinalized")
+            let relayerPays = relayer2Balance0.sub(relayer2Balance1);
+            let relayerGets = relayer2Balance3.sub(relayer2Balance2);
+            // the ratio is 104.99999 instead of 105 so we take the ceil to ignore the error of calculation
+            expect(Math.ceil((relayerGets.mul(1000).div(relayerPays)).toNumber() / 10)).to.equal(105); // 105 = 100 + relayerPercentageFee
+        });
 
-    //         // check relayer2's balance
-    //         let relayerBalance3 = await signer3.getBalance();
-
-    //         let relayerPays = relayerBalance0.sub(relayerBalance1);
-    //         let relayerGets = relayerBalance3.sub(relayerBalance2);
-    //         // the ratio is 104.99999 instead of 105 so we take the ceil to ignore the error of calculation
-    //         expect(Math.ceil((relayerGets.mul(1000).div(relayerPays)).toNumber() / 10)).to.equal(105); // 105 = 100 + relayerPercentageFee
-    //     });
-
-    //     it('skips some validation steps for known blocks', async () => {
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-
-    //         const oneMoreHeader = utils.concatenateHexStrings([headers, headerHex[6]]);
-    //         await relay2.addHeaders(genesis.merkle_root, oneMoreHeader);
-    //     });
+        it('appends multiple blocks in one height', async () => {
+            let newTimestamp;
+            // add 1 block
+            relay2.addBlock(
+                genesis.merkle_root,
+                chain[0].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+            // new block can be added even if a block in that height gets verified
+            newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    chain[2].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+        });
     });
 
-    // describe('#addHeadersWithRetarget', async () => {
-    //     const { chain, chain_header_hex } = RETARGET_CHAIN;
-    //     const headerHex = chain_header_hex;
-    //     const genesis = chain[1];
+    describe('#addBlockWithRetarget', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, oldPeriodStart } = RETARGET_CHAIN;
 
-    //     const firstHeader = RETARGET_CHAIN.oldPeriodStart;
-    //     const lastHeader = chain[8];
-    //     const preChange = utils.concatenateHexStrings(headerHex.slice(2, 9));
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(9, 15));
+        beforeEach(async () => {
+            // deploy relay contract
+            relay2 = await relayFactory.deploy(
+                chain[0].merkle_root,
+                chain[0].height,
+                oldPeriodStart.digest_le,
+                chain[0].timestamp,
+                chain[0].difficulty,
+                mockTDT.address
+            );
+            // set params
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await relay2.setDisputeTime(BigNumber.from(disputeTime));
+            await relay2.setProofTime(BigNumber.from(proofTime));
+            // add blocks up to target change
+            for (let i = 0; i < 8; i++) {
+                let newTimestamp = await time.latest() + disputeTime;
+                await time.setNextBlockTimestamp(newTimestamp);
+                await relay2.addBlock(
+                    chain[i].merkle_root,
+                    chain[i+1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            }
+        });
 
-    //     beforeEach(async () => {
+        it('appends new links to the chain with retarget', async () => {
+            let newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            await expect(
+                relay2.addBlockWithRetarget(
+                    chain[8].merkle_root,
+                    chain[9].merkle_root,
+                    chain[9].timestamp,
+                    chain[9].difficulty,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
 
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.merkle_root,
-    //             genesis.height,
-    //             firstHeader.digest_le,
-    //             ZERO_ADDRESS
-    //         );
+            expect(
+                await relay2.findHeight(chain[9].merkle_root)
+            ).to.equal(chain[9].height)
 
-    //         await relay2.addHeaders(genesis.merkle_root, preChange);
+        });
 
-    //     });
+        // it('errors if the smart contract is paused', async () => {
+        //     // pause the relay1
+        //     await relay2.pauseRelay();
 
-    //     it('errors if the smart contract is paused', async () => {
-    //         // pause the relay1
-    //         await relay2.pauseRelay();
-
-    //         await expect(
-    //             relay2.addHeadersWithRetarget(
-    //                 '0x00',
-    //                 lastHeader.hex,
-    //                 headers
-    //             )
-    //         ).to.revertedWith("Pausable: paused")
-    //     });
+        //     await expect(
+        //         relay2.addBlockWithRetarget(
+        //             '0x00',
+        //             lastHeader.hex,
+        //             headers
+        //         )
+        //     ).to.revertedWith("Pausable: paused")
+        // });
 
     //     it('errors if the old period start header is unknown', async () => {
 
@@ -1309,60 +1475,113 @@ describe("Relay", async () => {
     //         ).to.revertedWith("Relay: invalid retarget")
 
     //     });
+    });
 
-    //     it('appends new links to the chain', async () => {
-    //         await relay2.addHeadersWithRetarget(
-    //             firstHeader.hex,
-    //             lastHeader.hex,
-    //             headers
-    //         );
-
-    //         expect(
-    //             await relay2.findHeight(chain[10].digest_le)
-    //         ).to.equal(lastHeader.height + 2)
-
-    //     });
-    // });
-
-    // describe('#findHeight', async () => {
-    //     const { genesis, chain, chain_header_hex, oldPeriodStart } = REGULAR_CHAIN;
-    //     const headerHex = chain_header_hex;
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(0, 6));
+    // describe('#provideProof', async () => {
+    //     /* eslint-disable-next-line camelcase */
+    //     const { chain, oldPeriodStart } = REGULAR_CHAIN;
 
     //     beforeEach(async () => {
-
-    //         relay3 = await relayFactory.deploy(
-    //             genesis.merkle_root,
-    //             genesis.height,
+    //         let target = getTargetFromDiff(chain[0].difficulty) // TODO: it is not equal to target in contract
+    //         console.log(target);
+    //         console.log(target.toString());
+    //         // deploy relay contract
+    //         relay2 = await relayFactory.deploy(
+    //             chain[0].merkle_root,
+    //             chain[0].height,
     //             oldPeriodStart.digest_le,
-    //             ZERO_ADDRESS
+    //             chain[0].timestamp,
+    //             target.toString(),
+    //             mockTDT.address
     //         );
-
-    //         await relay3.addHeaders(genesis.merkle_root, headers);
+    //         // set params
+    //         await relay2.setMinCollateralRelayer(minCollateralRelayer);
+    //         await relay2.setDisputeTime(BigNumber.from(disputeTime));
+    //         await relay2.setProofTime(BigNumber.from(proofTime));
     //     });
 
-    //     it('errors on unknown blocks', async () => {
-
+    //     it('can provide proof if not disputed', async () => {
+    //         let relay2Signer1 = await relay2.connect(signer1);
+    //         let relay2Signer2 = await relay2.connect(signer2);
+    //         await relay2Signer1.addBlock(
+    //             chain[0].merkle_root,
+    //             chain[1].merkle_root,
+    //             {value: ethers.utils.parseEther(relayerCollateral)}
+    //         )
+    //         let signer1Balance0 = await signer1.getBalance();
+    //         let newTimestamp = await time.latest() + 10;
+    //         await time.increaseTo(newTimestamp);
     //         await expect(
-    //             relay3.findHeight(`0x${'00'.repeat(32)}`)
-    //         ).to.revertedWith("Relay: unknown block")
-
+    //             relay2Signer2.provideProof(
+    //                 chain[0].hex,
+    //                 chain[1].hex
+    //             )
+    //         ).to.emit(relay2, "BlockVerified")
+    //         let signer1Balance1 = await signer1.getBalance();
+    //         console.log(signer1Balance0);
+    //         console.log(signer1Balance1);
+    //         // expect(signer1Balance1.sub(signer1Balance0)).to.equal(relayerCollateral)
     //     });
 
-    //     it('finds height of known blocks', async () => {
-    //         //  since there's only 6 blocks added
-    //         for (let i = 1; i < 6; i += 1) {
-    //             /* eslint-disable-next-line camelcase */
-    //             const { digest_le, height } = chain[i];
+    //     it('can provide proof if disputed', async () => {
+    //         // check it gets the reward (challenger collateral)
+    //         // TODO
+    //     });
 
-    //             /* eslint-disable-next-line no-await-in-loop */
-    //             expect(
-    //                 await relay3.findHeight(digest_le)
-    //             ).to.equal(height)
-
-    //         }
+    //     it('reverts with invalid inputs', async () => {
+    //         // TODO
     //     });
     // });
+
+    describe('#findHeight', async () => {
+        const {chain, oldPeriodStart} = REGULAR_CHAIN;
+
+        beforeEach(async () => {
+        // deploy relay contract
+        relay2 = await relayFactory.deploy(
+            chain[0].merkle_root,
+            chain[0].height,
+            oldPeriodStart.digest_le,
+            chain[0].timestamp,
+            chain[0].difficulty,
+            mockTDT.address
+        );
+        // set params
+        await relay2.setMinCollateralRelayer(minCollateralRelayer);
+        await relay2.setDisputeTime(BigNumber.from(disputeTime));
+        await relay2.setProofTime(BigNumber.from(proofTime));
+
+        // add blocks up to target change
+        for (let i = 0; i < 6; i++) {
+            let newTimestamp = await time.latest() + disputeTime;
+            await time.setNextBlockTimestamp(newTimestamp);
+            await relay2.addBlock(
+                chain[i].merkle_root,
+                chain[i+1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+        }
+        });
+
+        it('errors on unknown blocks', async () => {
+            await expect(
+                relay2.findHeight(`0x${'00'.repeat(32)}`)
+            ).to.revertedWith("Relay: unknown block")
+
+        });
+
+        it('finds height of known blocks', async () => {
+            //  since there's only 6 blocks added
+            for (let i = 1; i < 6; i++) {
+                /* eslint-disable-next-line camelcase */
+                const { merkle_root, height } = chain[i];
+                /* eslint-disable-next-line no-await-in-loop */
+                expect(
+                    await relay2.findHeight(merkle_root)
+                ).to.equal(height)
+            }
+        });
+    });
 
     // describe('#ownerAddHeaders', async () => {
     //     /* eslint-disable-next-line camelcase */

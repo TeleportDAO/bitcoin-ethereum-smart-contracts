@@ -169,7 +169,11 @@ interface IRelay {
 
     function minCollateralRelayer() external view returns(uint);
 
+    function numCollateralRelayer() external view returns(uint);
+
     function minCollateralDisputer() external view returns(uint);
+    
+    function numCollateralDisputer() external view returns(uint);
 
     function disputeTime() external view returns(uint);
 
