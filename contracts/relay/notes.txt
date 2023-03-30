@@ -5,6 +5,7 @@
     disputeTime,
     proofTime,
     disputeRewardPercentage (~ 9000) // rest of the percentage remains for the contract as protocol fee
+    proofRewardPercentage
 }
 using setters when deploying
 

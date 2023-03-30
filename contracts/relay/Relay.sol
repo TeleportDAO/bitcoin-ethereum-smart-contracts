@@ -480,6 +480,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _checkEpochEndBlock(_oldEnd);
         _checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
         nonFinalizedEpochStartTimestamp.push(_newStart.time());
+        nonFinalizedCurrTarget.push(_newStart.target());
 
         return _ownerAddHeaders(_oldEnd, _headersView, true);
     }
@@ -594,7 +595,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             bytes29 _header = _headers.indexHeaderArray(i);
             _blockMerkleRoot = _header.merkleRoot();
             _anchorMerkleRoot = _newAnchor.merkleRoot();
-            _addBlock(_anchorMerkleRoot, _blockMerkleRoot, _withRetarget);
+            _addBlock(_anchorMerkleRoot, _blockMerkleRoot, ((i == 0) ? _withRetarget : false));
             // Extract basic info
             uint256 _height = _findHeight(_blockMerkleRoot); // revert if the block is unknown
             uint _idx = _findIndex(_blockMerkleRoot, _height);
@@ -740,12 +741,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _withRetarget || _anchor.target() == _target,
             "Relay: unexpected retarget"
         );
-        console.log("block target in contract", _target);
 
         // check the target matches the storage
         if(
             !_withRetarget &&
-            _idxInEpoch < finalizationParameter &&
+            _idxInEpoch <= finalizationParameter &&
             nonFinalizedCurrTarget.length != 0
         ) {
             // check _target matches with its ancestor's saved target in nonFinalizedCurrTarget
@@ -755,7 +755,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             );
         } else {
             require(
-                _withRetarget || currTarget == _target,
+                _withRetarget || (currTarget & _target) == _target,
                 "Relay: wrong target"
             );
         }
@@ -785,15 +785,18 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             lastVerifiedHeight += 1;
         }
         relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
-        disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer;
-        // Sends relayer its collateral + reward (if disputer exists)
-        Address.sendValue(
-            payable(chain[_height][_idx].relayer), 
-            minCollateralRelayer // TODO: send the rest to the treasury
-                + minCollateralDisputer * proofRewardPercentage / ONE_HUNDRED_PERCENT
-        ); 
         numCollateralRelayer --;
-        numCollateralDisputer --;
+        // below check is neccessary because the block might not have been disputed
+        if(chain[_height][_idx].disputer != address(0)) {
+            disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer;
+            numCollateralDisputer --;
+        }
+        // Sends relayer its collateral + reward (if disputer exists)
+        Address.sendValue(payable(chain[_height][_idx].relayer), minCollateralRelayer);
+        Address.sendValue(
+            payable(_msgSender()),
+                minCollateralDisputer * proofRewardPercentage / ONE_HUNDRED_PERCENT // TODO: send the rest to the treasury
+        ); 
         emit BlockVerified(
             _height,
             chain[_height][_idx].merkleRoot,
@@ -923,14 +926,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Checks if a previous height block gets verified
         if (!_isDisputed(_anchorHeight, _idx)) {
-            require(_disputeTimePassed(_anchorHeight, _idx), "Relay: not verified");
+            require(_disputeTimePassed(_anchorHeight, _idx) || chain[_anchorHeight][_idx].verified, "Relay: not verified");
 
             // Verifies _anchorMerkleRoot if it hasn't verified
             if (!chain[_anchorHeight][_idx].verified) {
                 _verifyHeader(_anchorHeight, _idx);
             }
         }
-        require(chain[_anchorHeight][_idx].verified, "Relay: previous block not verified");
+        require(chain[_anchorHeight][_idx].verified, "Relay: previous block not verified"); // TODO: this line is unneccessary i guess?
 
         // Checks if any block gets finalized (handles when owner adds headers)
         if(_anchorHeight > lastVerifiedHeight){

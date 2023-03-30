@@ -42,7 +42,7 @@ function getTargetFromDiff(input: any) {
 };
 
 describe("Relay", async () => {
-
+    
     let relayFactory: Relay__factory;
 
     let relay1: Relay;
@@ -53,24 +53,26 @@ describe("Relay", async () => {
     let signer1: Signer;
     let signer2: Signer;
     let signer3: Signer;
-
+    
     let ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
     let ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
     let bitcoinRESTAPI: any;
     let merkleRoots: any;
     let disputeTime = 9*60;
     let proofTime = 6*60;
-    let minCollateralDisputer = '100000000000000000'; // = 0.1 * 10 ^ 18
+    let minCollateralDisputer = BigNumber.from(100000000000000); // = 0.0001 * 10 ^ 18
     let minCollateralRelayer = BigNumber.from(1000000000000000); // = 0.001 * 10 ^ 18
+    let disputerCollateral = '0.0001';
     let relayerCollateral = '0.001';
-    let disputeRewardPercentage = 100;
-
+    let disputeRewardPercentage = 9000; // 90%
+    let startingTarget = new BN("4447653474738502407900799312400854215681091162244907008");
+    let nextTarget = new BN("5279534360700703025330663904443631645337169341976674304");
+    
     let mockTDT: MockContract;
 
     const _genesisHeight: any = 99 * 2016 + 31 * 63;
 
     before(async () => {
-
         [deployer, signer1, signer2, signer3] = await ethers.getSigners();
 
         relayFactory = new Relay__factory(
@@ -124,11 +126,11 @@ describe("Relay", async () => {
             _heightBigNumber,
             _periodStart,
             _startTimestamp,
-            0, // TODO: pass target
+            startingTarget.toString(),
             ZERO_ADDRESS
         );
 
-        relay1.setDisputeRewardPercentage(disputeRewardPercentage);
+        await relay1.setDisputeRewardPercentage(disputeRewardPercentage);
 
         return relay1;
     };
@@ -159,7 +161,7 @@ describe("Relay", async () => {
 
         return relayTest;
     };
-
+    
     // ------------------------------------
     // SCENARIOS:
     // describe('Submitting block headers', async () => {
@@ -750,7 +752,7 @@ describe("Relay", async () => {
                 genesis.height,
                 orphan_562630.merkle_root,
                 genesis.timestamp,
-                genesis.difficulty,
+                startingTarget.toString(),
                 ZERO_ADDRESS
             );
         });
@@ -763,7 +765,7 @@ describe("Relay", async () => {
                     genesis.height,
                     genesis.merkle_root,
                     genesis.timestamp,
-                    genesis.difficulty,
+                    startingTarget.toString(),
                     ZERO_ADDRESS
                 )
             ).to.revertedWith("Relay: genesis root is zero")
@@ -798,7 +800,7 @@ describe("Relay", async () => {
                 genesis.height,
                 orphan_562630.merkle_root,
                 genesis.timestamp,
-                genesis.difficulty,
+                startingTarget.toString(),
                 ZERO_ADDRESS
             );
         });
@@ -822,7 +824,7 @@ describe("Relay", async () => {
                 genesis.height,
                 orphan_562630.merkle_root,
                 genesis.timestamp,
-                genesis.difficulty,
+                startingTarget.toString(),
                 ZERO_ADDRESS
             );
         });
@@ -850,7 +852,7 @@ describe("Relay", async () => {
                 genesis.height,
                 orphan_562630.merkle_root,
                 genesis.timestamp,
-                genesis.difficulty,
+                startingTarget.toString(),
                 ZERO_ADDRESS
             );
         });
@@ -877,7 +879,7 @@ describe("Relay", async () => {
                 genesis.height,
                 orphan_562630.merkle_root,
                 genesis.timestamp,
-                genesis.difficulty,
+                startingTarget.toString(),
                 ZERO_ADDRESS
             );
             relaySigner2 = await relay2.connect(signer2);
@@ -1006,7 +1008,7 @@ describe("Relay", async () => {
                 genesis.height,
                 orphan_562630.merkle_root,
                 genesis.timestamp,
-                genesis.difficulty,
+                startingTarget.toString(),
                 mockTDT.address
             );
             await relay2.setMinCollateralRelayer(minCollateralRelayer);
@@ -1355,8 +1357,8 @@ describe("Relay", async () => {
                 chain[0].merkle_root,
                 chain[0].height,
                 oldPeriodStart.digest_le,
-                chain[0].timestamp,
-                chain[0].difficulty,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[0].difficulty).toString(),
                 mockTDT.address
             );
             // set params
@@ -1383,7 +1385,7 @@ describe("Relay", async () => {
                     chain[8].merkle_root,
                     chain[9].merkle_root,
                     chain[9].timestamp,
-                    chain[9].difficulty,
+                    chain[9].difficulty, // todo: should be target, not difficulty
                     {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.emit(relay2, "BlockAdded")
@@ -1477,61 +1479,339 @@ describe("Relay", async () => {
     //     });
     });
 
-    // describe('#provideProof', async () => {
-    //     /* eslint-disable-next-line camelcase */
-    //     const { chain, oldPeriodStart } = REGULAR_CHAIN;
+    describe('#provideProof', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, oldPeriodStart } = REGULAR_CHAIN;
 
-    //     beforeEach(async () => {
-    //         let target = getTargetFromDiff(chain[0].difficulty) // TODO: it is not equal to target in contract
-    //         console.log(target);
-    //         console.log(target.toString());
-    //         // deploy relay contract
-    //         relay2 = await relayFactory.deploy(
-    //             chain[0].merkle_root,
-    //             chain[0].height,
-    //             oldPeriodStart.digest_le,
-    //             chain[0].timestamp,
-    //             target.toString(),
-    //             mockTDT.address
-    //         );
-    //         // set params
-    //         await relay2.setMinCollateralRelayer(minCollateralRelayer);
-    //         await relay2.setDisputeTime(BigNumber.from(disputeTime));
-    //         await relay2.setProofTime(BigNumber.from(proofTime));
-    //     });
+        beforeEach(async () => {
+            // deploy relay contract
+            relay2 = await relayFactory.deploy(
+                chain[0].merkle_root,
+                chain[0].height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[0].difficulty).toString(),
+                mockTDT.address
+            );
+            // set params
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await relay2.setMinCollateralDisputer(minCollateralDisputer);
+            await relay2.setDisputeTime(BigNumber.from(disputeTime));
+            await relay2.setProofTime(BigNumber.from(proofTime));
+        });
 
-    //     it('can provide proof if not disputed', async () => {
-    //         let relay2Signer1 = await relay2.connect(signer1);
-    //         let relay2Signer2 = await relay2.connect(signer2);
-    //         await relay2Signer1.addBlock(
-    //             chain[0].merkle_root,
-    //             chain[1].merkle_root,
-    //             {value: ethers.utils.parseEther(relayerCollateral)}
-    //         )
-    //         let signer1Balance0 = await signer1.getBalance();
-    //         let newTimestamp = await time.latest() + 10;
-    //         await time.increaseTo(newTimestamp);
-    //         await expect(
-    //             relay2Signer2.provideProof(
-    //                 chain[0].hex,
-    //                 chain[1].hex
-    //             )
-    //         ).to.emit(relay2, "BlockVerified")
-    //         let signer1Balance1 = await signer1.getBalance();
-    //         console.log(signer1Balance0);
-    //         console.log(signer1Balance1);
-    //         // expect(signer1Balance1.sub(signer1Balance0)).to.equal(relayerCollateral)
-    //     });
+        it('can provide proof if not disputed', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            await relay2Signer1.addBlock(
+                chain[0].merkle_root,
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            let signer1Balance0 = await signer1.getBalance();
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer2.provideProof(
+                    chain[0].hex,
+                    chain[1].hex
+                )
+            ).to.emit(relay2, "BlockVerified")
+            let signer1Balance1 = await signer1.getBalance();
+            expect(signer1Balance1.sub(signer1Balance0)).to.equal(minCollateralRelayer);
+        });
 
-    //     it('can provide proof if disputed', async () => {
-    //         // check it gets the reward (challenger collateral)
-    //         // TODO
-    //     });
+        it('can provide proof if disputed', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            let relay2Signer3 = await relay2.connect(signer3);
+            // signer 1 adds a block
+            await relay2Signer1.addBlock(
+                chain[0].merkle_root,
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            // signer 2 disputes it
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await relay2Signer2.disputeBlock(
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(disputerCollateral)}
+            )
+            // signer 3 provides proof of the block's validity
+            let signer1Balance0 = await signer1.getBalance();
+            let signer3Balance0 = await signer3.getBalance();
+            newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer3.provideProof(
+                    chain[0].hex,
+                    chain[1].hex
+                )
+            ).to.emit(relay2, "BlockVerified")
+            let signer1Balance1 = await signer1.getBalance();
+            let signer3Balance1 = await signer3.getBalance();
+            // check that the relayer gets its full collateral back
+            expect(signer1Balance1.sub(signer1Balance0)).to.equal(minCollateralRelayer);
+            // check that signer 3 gets reward 
+            expect(signer3Balance1 > signer3Balance0);
+        });
 
-    //     it('reverts with invalid inputs', async () => {
-    //         // TODO
-    //     });
-    // });
+        it('reverts with invalid inputs', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            await relay2Signer1.addBlock(
+                chain[0].merkle_root,
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer2.provideProof(
+                    chain[0].hex+'00',
+                    chain[1].hex
+                )
+            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+            await expect(
+                relay2Signer2.provideProof(
+                    chain[0].hex,
+                    chain[1].hex+'00'
+                )
+            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+        });
+
+        it('cannot provide proof if already verified', async () => {
+            // TODO
+        })
+    });
+
+    describe('#provideProofWithRetarget', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, oldPeriodStart } = RETARGET_CHAIN;
+
+        beforeEach(async () => {
+            // deploy relay contract
+            relay2 = await relayFactory.deploy(
+                chain[8].merkle_root,
+                chain[8].height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[8].difficulty).toString(),
+                mockTDT.address
+            );
+            // set params
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await relay2.setMinCollateralDisputer(minCollateralDisputer);
+            await relay2.setDisputeTime(BigNumber.from(disputeTime));
+            await relay2.setProofTime(BigNumber.from(proofTime));
+        });
+
+        it('can provide proof if not disputed', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            await relay2Signer1.addBlockWithRetarget(
+                chain[8].merkle_root,
+                chain[9].merkle_root,
+                chain[9].timestamp,
+                nextTarget.toString(),
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            let signer1Balance0 = await signer1.getBalance();
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer2.provideProofWithRetarget(
+                    chain[8].hex,
+                    chain[9].hex
+                )
+            ).to.emit(relay2, "BlockVerified")
+            let signer1Balance1 = await signer1.getBalance();
+            expect(signer1Balance1.sub(signer1Balance0)).to.equal(minCollateralRelayer);
+        });
+
+        it('can provide proof if disputed', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            let relay2Signer3 = await relay2.connect(signer3);
+            // signer 1 adds a block
+            await relay2Signer1.addBlockWithRetarget(
+                chain[8].merkle_root,
+                chain[9].merkle_root,
+                chain[9].timestamp,
+                nextTarget.toString(),
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            // signer 2 disputes it
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await relay2Signer2.disputeBlock(
+                chain[9].merkle_root,
+                {value: ethers.utils.parseEther(disputerCollateral)}
+            )
+            // signer 3 provides proof of the block's validity
+            let signer1Balance0 = await signer1.getBalance();
+            let signer3Balance0 = await signer3.getBalance();
+            newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer3.provideProofWithRetarget(
+                    chain[8].hex,
+                    chain[9].hex
+                )
+            ).to.emit(relay2, "BlockVerified")
+            let signer1Balance1 = await signer1.getBalance();
+            let signer3Balance1 = await signer3.getBalance();
+            // check that the relayer gets its full collateral back
+            expect(signer1Balance1.sub(signer1Balance0)).to.equal(minCollateralRelayer);
+            // check that signer 3 gets reward 
+            expect(signer3Balance1 > signer3Balance0);
+        });
+
+        it('reverts with invalid inputs', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            await relay2Signer1.addBlockWithRetarget(
+                chain[8].merkle_root,
+                chain[9].merkle_root,
+                chain[9].timestamp,
+                nextTarget.toString(),
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer2.provideProofWithRetarget(
+                    chain[8].hex+'00',
+                    chain[9].hex
+                )
+            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+            await expect(
+                relay2Signer2.provideProofWithRetarget(
+                    chain[8].hex,
+                    chain[9].hex+'00'
+                )
+            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+        });
+    });
+
+    describe('#disputeBlock', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, oldPeriodStart } = REGULAR_CHAIN;
+
+        beforeEach(async () => {
+            // deploy relay contract
+            relay2 = await relayFactory.deploy(
+                chain[0].merkle_root,
+                chain[0].height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[0].difficulty).toString(),
+                mockTDT.address
+            );
+            // set params
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await relay2.setMinCollateralDisputer(minCollateralDisputer);
+            await relay2.setDisputeTime(BigNumber.from(disputeTime));
+            await relay2.setProofTime(BigNumber.from(proofTime));
+        });
+
+        it('cannot provide proof if dispute time passes', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            let relay2Signer3 = await relay2.connect(signer3);
+            // signer 1 adds a block
+            await relay2Signer1.addBlock(
+                chain[0].merkle_root,
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            // signer 2 disputes it
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await relay2Signer2.disputeBlock(
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(disputerCollateral)}
+            )
+            // signer 3 provides proof of the block's validity
+            let signer1Balance0 = await signer1.getBalance();
+            newTimestamp = await time.latest() + disputeTime;
+            await time.increaseTo(newTimestamp);
+            await expect(
+                relay2Signer3.provideProof(
+                    chain[0].hex,
+                    chain[1].hex
+                )
+            ).to.revertedWith("Relay: proof time passed")
+            let signer1Balance1 = await signer1.getBalance();
+            // check that the relayer doesn't get its collateral back because has submitted a malicious root
+            expect(signer1Balance1.sub(signer1Balance0)).to.equal(BigNumber.from(0));
+        });
+    });
+
+    describe('#getDisputeReward', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, oldPeriodStart } = REGULAR_CHAIN;
+
+        beforeEach(async () => {
+            // deploy relay contract
+            relay2 = await relayFactory.deploy(
+                chain[0].merkle_root,
+                chain[0].height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[0].difficulty).toString(),
+                mockTDT.address
+            );
+            // set params
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await relay2.setMinCollateralDisputer(minCollateralDisputer);
+            await relay2.setDisputeTime(BigNumber.from(disputeTime));
+            await relay2.setProofTime(BigNumber.from(proofTime));
+            await relay2.setDisputeRewardPercentage(BigNumber.from(disputeRewardPercentage));
+        });
+
+        it('disputer gets the dispute reward', async () => {
+            let relay2Signer1 = await relay2.connect(signer1);
+            let relay2Signer2 = await relay2.connect(signer2);
+            let relay2Signer3 = await relay2.connect(signer3);
+            // signer 1 adds a block
+            await relay2Signer1.addBlock(
+                chain[0].merkle_root,
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            // signer 2 disputes it
+            let newTimestamp = await time.latest() + 10;
+            await time.increaseTo(newTimestamp);
+            await relay2Signer2.disputeBlock(
+                chain[1].merkle_root,
+                {value: ethers.utils.parseEther(disputerCollateral)}
+            )
+            // signer 3 provides proof of the block's validity
+            let signer1Balance0 = await signer1.getBalance();
+            let signer2Balance0 = await signer2.getBalance();
+            newTimestamp = await time.latest() + disputeTime;
+            await time.increaseTo(newTimestamp);
+            let signer1Balance1 = await signer1.getBalance();
+            await expect(
+                relay2Signer3.getDisputeReward(
+                    chain[1].merkle_root
+                )
+            ).to.emit(relay2, "DisputeReward")
+            .withArgs(chain[1].merkle_root, await signer2.getAddress(), await signer1.getAddress())
+            let signer2Balance1 = await signer2.getBalance();
+            // check that the relayer doesn't get its collateral back because has submitted a malicious root
+            expect(signer1Balance1.sub(signer1Balance0)).to.equal(BigNumber.from(0));
+            // check that the disputer gets its reward
+            expect(signer2Balance1.sub(signer2Balance0))
+            .to.equal(
+                minCollateralDisputer.add(
+                    minCollateralRelayer.mul(BigNumber.from(disputeRewardPercentage)).div(BigNumber.from(10000))
+                )
+            );
+        });
+    });
 
     describe('#findHeight', async () => {
         const {chain, oldPeriodStart} = REGULAR_CHAIN;
@@ -1542,8 +1822,8 @@ describe("Relay", async () => {
             chain[0].merkle_root,
             chain[0].height,
             oldPeriodStart.digest_le,
-            chain[0].timestamp,
-            chain[0].difficulty,
+            oldPeriodStart.timestamp,
+            getTargetFromDiff(chain[0].difficulty).toString(),
             mockTDT.address
         );
         // set params
@@ -1583,145 +1863,151 @@ describe("Relay", async () => {
         });
     });
 
-    // describe('#ownerAddHeaders', async () => {
-    //     /* eslint-disable-next-line camelcase */
-    //     const { chain_header_hex, chain, genesis, orphan_562630 } = REGULAR_CHAIN;
-    //     // const headerHex = chain.map(header=> header.hex);
-    //     const headerHex = chain_header_hex;
+    describe('#ownerAddHeaders', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain_header_hex, genesis, oldPeriodStart } = REGULAR_CHAIN;
+        // const headerHex = chain.map(header=> header.hex);
+        const headerHex = chain_header_hex;
 
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(0, 6));
+        const headers = utils.concatenateHexStrings(headerHex.slice(0, 6));
 
-    //     beforeEach(async () => {
+        beforeEach(async () => {
 
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.merkle_root,
-    //             genesis.height,
-    //             orphan_562630.digest_le,
-    //             mockTDT.address
-    //         );
+            relay2 = await relayFactory.deploy(
+                genesis.merkle_root,
+                genesis.height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(genesis.difficulty).toString(),
+                mockTDT.address
+            );
 
-    //         // initialize mock contract
-    //         await setTDTbalanceOf(0);
-    //         await setTDTtransfer(true);
-    //     });
+            // initialize mock contract
+            await setTDTbalanceOf(0);
+            await setTDTtransfer(true);
+            await relay2.setMinCollateralRelayer(minCollateralRelayer);
+            await expect(
+                relay2.setDisputeTime(BigNumber.from(disputeTime))
+            ).to.emit(relay2, "NewDisputeTime");
+            await expect(
+                relay2.setProofTime(BigNumber.from(proofTime))
+            ).to.emit(relay2, "NewProofTime");
+        });
 
-    //     it('appends new links to the chain and fires an event', async () => {
+        it('appends new links to the chain and fires an event', async () => {
+            // owner is the deployer
+            let relayDeployer = await relay2.connect(deployer);
 
-    //         // owner is the deployer
-    //         let relayDeployer = await relay2.connect(deployer);
+            expect(
+                await relayDeployer.ownerAddHeaders(
+                    genesis.hex,
+                    headers
+                )
+            ).to.emit(relay2, "BlockVerified")
+        });
 
-    //         expect(
-    //             await relayDeployer.ownerAddHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
-    //     });
+        it('only owner can call it', async () => {
 
-    //     it('only owner can call it', async () => {
+            // signer1 is not the owner
+            let relaySigner1 = await relay2.connect(signer1);
 
-    //         // signer1 is not the owner
-    //         let relaySigner1 = await relay2.connect(signer1);
+            await expect(
+                relaySigner1.ownerAddHeaders(
+                    genesis.hex,
+                    headers
+                )
+            ).revertedWith("Ownable: caller is not the owner")
+        });
 
-    //         await expect(
-    //             relaySigner1.ownerAddHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).revertedWith("Ownable: caller is not the owner")
-    //     });
+        it('can be called even when the relay is paused', async () => {
 
-    //     it('can be called even when the relay1 is paused', async () => {
+            let relayDeployer = await relay2.connect(deployer);
 
-    //         let relayDeployer = await relay2.connect(deployer);
+            await relayDeployer.pauseRelay();
 
-    //         await relayDeployer.pauseRelay();
+            expect(
+                await relayDeployer.ownerAddHeaders(
+                    genesis.hex,
+                    headers
+                )
+            ).to.emit(relay2, "BlockVerified")
+        });
 
-    //         expect(
-    //             await relayDeployer.ownerAddHeaders(
-    //                 genesis.merkle_root,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
-    //     });
+    });
 
-    // });
+    describe('#ownerAddHeadersWithRetarget', async () => {
 
-    // describe('#ownerAddHeadersWithRetarget', async () => {
+        /* eslint-disable-next-line camelcase */
+        const { chain, chain_header_hex, oldPeriodStart } = RETARGET_CHAIN;
+        const headerHex = chain_header_hex;
+        const genesis = chain[1];
 
-    //     /* eslint-disable-next-line camelcase */
-    //     const { chain, chain_header_hex } = RETARGET_CHAIN;
-    //     const headerHex = chain_header_hex;
-    //     const genesis = chain[1];
-
-    //     const firstHeader = RETARGET_CHAIN.oldPeriodStart;
-    //     const lastHeader = chain[8];
-    //     const preChange = utils.concatenateHexStrings(headerHex.slice(2, 9));
-    //     const headers = utils.concatenateHexStrings(headerHex.slice(9, 15));
+        const lastHeader = chain[8];
+        const preChange = utils.concatenateHexStrings(headerHex.slice(2, 9));
+        const headers = utils.concatenateHexStrings(headerHex.slice(9, 17));
 
         
-    //     beforeEach(async () => {
+        beforeEach(async () => {
             
-    //         relay2 = await relayFactory.deploy(
-    //             genesis.merkle_root,
-    //             genesis.height,
-    //             firstHeader.digest_le,
-    //             ZERO_ADDRESS
-    //         );
-    //         await relay2.ownerAddHeaders(genesis.merkle_root, preChange);
-    //     });
+            relay2 = await relayFactory.deploy(
+                genesis.merkle_root,
+                genesis.height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[0].difficulty).toString(),
+                mockTDT.address
+            );
+            // initialize mock contract
+            await setTDTbalanceOf(0);
+            await setTDTtransfer(true);
+            await relay2.ownerAddHeaders(genesis.hex, preChange);
+        });
 
-    //     it('appends new links to the chain and fires an event', async () => {
-    //         let relayDeployer = await relay2.connect(deployer);
+        it('appends new links to the chain and fires an event', async () => {
+            let relayDeployer = await relay2.connect(deployer);
+            expect(
+                await relayDeployer.ownerAddHeadersWithRetarget(
+                    lastHeader.hex,
+                    headers
+                )
+            ).to.emit(relay2, "BlockVerified")
 
-    //         expect(
-    //             await relayDeployer.ownerAddHeadersWithRetarget(
-    //                 firstHeader.hex,
-    //                 lastHeader.hex,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
+            expect(
+                await relayDeployer.findHeight(chain[10].merkle_root)
+            ).to.equal(lastHeader.height + 2)
+        });
 
-    //         expect(
-    //             await relayDeployer.findHeight(chain[10].digest_le)
-    //         ).to.equal(lastHeader.height + 2)
+        it('only owner can call it', async () => {
 
-    //     });
+            // signer1 is not the owner
+            let relaySigner1 = await relay2.connect(signer1);
 
-    //     it('only owner can call it', async () => {
-
-    //         // signer1 is not the owner
-    //         let relaySigner1 = await relay2.connect(signer1);
-
-    //         await expect(
-    //             relaySigner1.ownerAddHeadersWithRetarget(
-    //                 firstHeader.hex,
-    //                 lastHeader.hex,
-    //                 headers
-    //             )
-    //         ).revertedWith("Ownable: caller is not the owner")
+            await expect(
+                relaySigner1.ownerAddHeadersWithRetarget(
+                    lastHeader.hex,
+                    headers
+                )
+            ).revertedWith("Ownable: caller is not the owner")
             
-    //     });
+        });
 
-    //     it('can be called even when the relay1 is paused', async () => {
+        it('can be called even when the relay is paused', async () => {
+            let relayDeployer = await relay2.connect(deployer);
 
-    //         let relayDeployer = await relay2.connect(deployer);
+            await relayDeployer.pauseRelay();
 
-    //         await relayDeployer.pauseRelay();
+            expect(
+                await relayDeployer.ownerAddHeadersWithRetarget(
+                    lastHeader.hex,
+                    headers
+                )
+            ).to.emit(relay2, "BlockVerified")
 
-    //         expect(
-    //             await relayDeployer.ownerAddHeadersWithRetarget(
-    //                 firstHeader.hex,
-    //                 lastHeader.hex,
-    //                 headers
-    //             )
-    //         ).to.emit(relay2, "BlockAdded")
+            expect(
+                await relayDeployer.findHeight(chain[10].merkle_root)
+            ).to.equal(lastHeader.height + 2)
+        });
 
-    //         expect(
-    //             await relayDeployer.findHeight(chain[10].digest_le)
-    //         ).to.equal(lastHeader.height + 2)
-    //     });
-
-    // });
+    });
 
 });

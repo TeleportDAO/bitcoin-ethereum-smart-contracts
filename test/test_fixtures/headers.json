@@ -14,6 +14,7 @@
   "oldPeriodStart": {
     "digest": "0x0000000000000000000db7442b5662bbd980d7c2db1aef2ca925917ae392df11",
     "digest_le": "0x11df92e37a9125a92cef1adbc2d780d9bb62562b44b70D000000000000000000",
+    "timestamp": 1543838368,
     "height": 562464
   },
   "badHeader": {
