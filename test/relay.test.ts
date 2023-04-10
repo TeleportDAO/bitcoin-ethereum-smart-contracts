@@ -549,7 +549,7 @@ describe("Relay", async () => {
     //         let relayDeployer = await relay1.connect(deployer);
     //         let _height = block.height;
     //         // Get the fee amount needed for the query
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
     //         // pause the relay1
     //         await relayDeployer.pauseRelay();
 
@@ -571,7 +571,7 @@ describe("Relay", async () => {
     //         let relaySigner1 = await relay1.connect(signer1);
     //         let _height = block.height;
     //         // Get the fee amount needed for the query
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
 
     //         // See if the transaction check goes through successfully
     //         await expect(
@@ -590,7 +590,7 @@ describe("Relay", async () => {
     //         let relayDeployer = await relay1.connect(deployer);
     //         let _height = block.height;
     //         // Get the fee amount needed for the query
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
 
     //         await expect(
     //             relayDeployer.checkTxProof(
@@ -611,7 +611,7 @@ describe("Relay", async () => {
     //         let currentEpochQueries0 = await relaySigner1.currentEpochQueries();
     //         let _height = block.height;
     //         // Get the fee amount needed for the query
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
 
     //         // See if the transaction check goes through successfully
     //         expect(
@@ -648,7 +648,7 @@ describe("Relay", async () => {
     //         let currentEpochQueries0 = await relaySigner1.currentEpochQueries();
     //         let _height = block.height;
     //         // Get the fee amount needed for the query
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
 
     //         // See if the transaction check fails
     //         await expect(
@@ -677,7 +677,7 @@ describe("Relay", async () => {
     //         let currentEpochQueries0 = await relaySigner1.currentEpochQueries();
     //         let _height = block.height;
     //         // Get the fee amount needed for the query 
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
 
     //         // See if the transaction check returns false
     //         expect(
@@ -714,7 +714,7 @@ describe("Relay", async () => {
     //         let currentEpochQueries0 = await relaySigner1.currentEpochQueries();
     //         let _height = block.height;
     //         // Get the fee amount needed for the query 
-    //         let fee = await relay1.getBlockHeaderFee(_height, 0);
+    //         let fee = await relay1.getBlockUsageFee(_height, 0);
 
     //         // See if the transaction check returns false
     //         await expect(
@@ -1068,6 +1068,97 @@ describe("Relay", async () => {
                     {value: ethers.utils.parseEther(relayerCollateral)}
                 )
             ).to.reverted
+        });
+
+        it('errors if the merkle root is zero', async () => {
+            await expect(
+                relay2.addBlock(
+                    genesis.merkle_root,
+                    ZERO_HASH,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: zero input")
+            await expect(
+                relay2.addBlock(
+                    ZERO_HASH,
+                    chain[0].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: zero input")
+        });
+
+        it('errors if it is the first block of an epoch (should be called with addBlockWithRetarget', async () => {
+            const { chain, oldPeriodStart } = RETARGET_CHAIN;
+            // deploy relay contract
+            relay3 = await relayFactory.deploy(
+                chain[0].merkle_root,
+                chain[0].height,
+                oldPeriodStart.digest_le,
+                oldPeriodStart.timestamp,
+                getTargetFromDiff(chain[0].difficulty).toString(),
+                mockTDT.address
+            );
+            // set params
+            await relay3.setMinCollateralRelayer(minCollateralRelayer);
+            await relay3.setDisputeTime(BigNumber.from(disputeTime));
+            await relay3.setProofTime(BigNumber.from(proofTime));
+            // initialize mock contract
+            await setTDTbalanceOf(0);
+            await setTDTtransfer(true);
+            // add blocks up to target change
+            for (let i = 0; i < 8; i++) {
+                let newTimestamp = await time.latest() + disputeTime;
+                await time.setNextBlockTimestamp(newTimestamp);
+                await relay3.addBlock(
+                    chain[i].merkle_root,
+                    chain[i+1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            }
+            await expect(
+                relay3.addBlock(
+                    chain[8].merkle_root,
+                    chain[9].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: call addBlockWithRetarget")
+        });
+
+        it('errors if it is creating an old fork', async () => {
+            // initialize mock contract
+            await setTDTbalanceOf(0);
+            await setTDTtransfer(true);
+            // add blocks to finalize one
+            await relay2.addBlock(
+                genesis.merkle_root,
+                chain[0].merkle_root,
+                {value: ethers.utils.parseEther(relayerCollateral)}
+            )
+            for (let i = 0; i < 7; i++) {
+                let newTimestamp = await time.latest() + disputeTime;
+                await time.setNextBlockTimestamp(newTimestamp);
+                await relay2.addBlock(
+                    chain[i].merkle_root,
+                    chain[i+1].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            }
+            // successfully submits a fork on an unfinalized height
+            await expect(
+                relay2.addBlock(
+                    chain[1].merkle_root,
+                    chain[8].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.emit(relay2, "BlockAdded")
+            // revert submitting on a finalized height
+            await expect(
+                relay2.addBlock(
+                    chain[0].merkle_root,
+                    chain[8].merkle_root,
+                    {value: ethers.utils.parseEther(relayerCollateral)}
+                )
+            ).to.revertedWith("Relay: old block")
         });
 
         it('appends new links to the chain and fires an event', async () => {

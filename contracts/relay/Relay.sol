@@ -672,13 +672,16 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint256 _height = _findHeight(_blockMerkleRoot); // Revert if the block is unknown
         uint _idx = _findIndex(_blockMerkleRoot, _height);
 
-        // Checks not verified yet & proof time not passed
+        /*
+            1. Check block is not verified yet & proof time not passed
+            2. Match the stored data with provided data: parent merkle root
+            3. Check the provided timestamp and target are correct
+            4. Checks the proof validity: no retarget & hash link good & enough PoW
+            5. Mark the header as verified and give back the collateral to relayer
+        */
+
         _checkProofCanBeProvided(_height, _idx);
-
-        // Matchs the stored data with provided data: parent merkle root
         _checkStoredDataMatch(_anchor, _height, _idx);
-
-        // check the provided timestamp and target are correct
         if(_withRetarget) {
             require(
                 nonFinalizedEpochStartTimestamp[_idx] == _header.time(),
@@ -689,11 +692,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
                 "Relay: incorrect target"
             );
         }
-
-        // Checks the proof validity: no retarget & hash link good & enough PoW
         _checkProofValidity(_anchor, _header, _withRetarget);
-
-        // Marks the header as verified and give back the collateral
         _verifyHeaderAfterDispute(_height, _idx);
 
         return true;
@@ -751,11 +750,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             // check _target matches with its ancestor's saved target in nonFinalizedCurrTarget
             require(
                 nonFinalizedCurrTarget[_findIndex(_findAncestor(_header.merkleRoot(), _idxInEpoch), _height - _idxInEpoch)]
-                == _target
+                == _target,
+                "Relay: targets do not match"
             );
         } else {
             require(
-                _withRetarget || (currTarget & _target) == _target,
+                _withRetarget || (currTarget & _target) == _target, // TODO remove &?
                 "Relay: wrong target"
             );
         }
@@ -881,7 +881,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice Adds merkle root to storage
-    /// @dev We do accepet a merkle root on top of an unverified root
+    /// @dev We do not accept a merkle root on top of an unverified root
     /// @return True if successfully written
     function _addBlock(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot, bool _withRetarget) internal returns (bool) {
         // Extract basic info
@@ -920,8 +920,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
 
         // Find the previous header
-        // todo test: when no prev block exists, and when two exist, also check block.timestamp is correct and
-        //      does not have a huge error
         uint _idx = _findIndex(_anchorMerkleRoot, _anchorHeight); 
 
         // Checks if a previous height block gets verified
