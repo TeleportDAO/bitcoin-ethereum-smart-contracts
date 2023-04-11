@@ -22,7 +22,6 @@ TODO: remove it from chain and elsewhere in above case
 TODO: add a mapping unverifiedParentRoot: concat(height, idx, root) -> parent root
 to check if the previously submitten root is verified yet or not 
 TODO: test target changing arrays
-TODO: require collaterals to be equal to the mins, and remove numCollateral... variables
 TODO: getDisputeReward can be called multiple times (proposed sol: remove the root from chain in the end of the func)
 TODO: stored data match -> input can be merkle root instead of height and idx
 TODO: combine checkEpochendBlock and checkRetarget functions
@@ -35,3 +34,4 @@ TODO: in _pruneHeight do not verify the header bcz it emits wrong event and if d
 TODO: when verify after dispute, we do not prune chain (probably you can add prune chain to the verify header itself to check it each time)
 
 DONE: add steps explaining comments to _checkHeaderProof()
+DONE: require collaterals to be equal to the mins, (and remove numCollateral... variables) -> didn't cuz totalTNT()

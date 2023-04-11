@@ -297,7 +297,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes32 _blockMerkleRoot
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         // check relayer locks enough collateral
-        require(msg.value >= minCollateralRelayer, "Relay: low collateral");
+        require(msg.value == minCollateralRelayer, "Relay: wrong collateral");
         relayersCollateral[_msgSender()] += msg.value;
         numCollateralRelayer ++;
         
@@ -319,7 +319,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint256 _newTarget
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         // check relayer locks enough collateral
-        require(msg.value >= minCollateralRelayer, "Relay: low collateral");
+        require(msg.value == minCollateralRelayer, "Relay: wrong collateral");
         relayersCollateral[_msgSender()] += msg.value;
         numCollateralRelayer ++;
         
@@ -351,7 +351,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             4. Check it has not been disputed before
         */
         
-        require(msg.value >= minCollateralDisputer, "Relay: low collateral");
+        require(msg.value == minCollateralDisputer, "Relay: wrong collateral");
 
         // Saves collateral amount
         disputersCollateral[_msgSender()] += msg.value;
