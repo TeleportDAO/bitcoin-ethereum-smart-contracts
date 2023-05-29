@@ -17,21 +17,22 @@ using setters when deploying
 * if a natural fork comes up, the relayer of the abandoned block can later come provide a proof and get its collateral back
 (before the corresponding height gets finalized and pruned), dispute is not necessarily needed for providing proofs
 
-TODO: set zero the previousBlock mapping when dispute is successful (so same root can be submitted again)
-TODO: remove it from chain and elsewhere in above case
 TODO: add a mapping unverifiedParentRoot: concat(height, idx, root) -> parent root
 to check if the previously submitten root is verified yet or not 
 TODO: test target changing arrays
-TODO: getDisputeReward can be called multiple times (proposed sol: remove the root from chain in the end of the func)
 TODO: stored data match -> input can be merkle root instead of height and idx
 TODO: combine checkEpochendBlock and checkRetarget functions
 TODO: _oldPeriodEndHeader can be right root and wrong time and target to prove a wrong new epoch header
-TODO: in verify after dispute, don't send the dispute collateral if the header had not been disputed (add the payment to the if statement)
-TODO: combine _verifyHeader and _verifyHeaderAfterDispute
-TODO: comments (addblock especially wrong dev)
+-TODO: in verify after dispute, don't send the dispute collateral if the header had not been disputed (add the payment to the if statement)
+????: combine _verifyHeader and _verifyHeaderAfterDispute
 TODO: note that when pruning, you might delete a disputed block so the disputer could not get back his collateral
 TODO: in _pruneHeight do not verify the header bcz it emits wrong event and if disputed before, the disputer loses his collateral
 TODO: when verify after dispute, we do not prune chain (probably you can add prune chain to the verify header itself to check it each time)
+TODO: return hash of merkle root (source of randomness)
 
 DONE: add steps explaining comments to _checkHeaderProof()
+DONE: getDisputeReward can be called multiple times (proposed sol: remove the root from chain in the end of the func)
 DONE: require collaterals to be equal to the mins, (and remove numCollateral... variables) -> didn't cuz totalTNT()
+DONE: comments (addblock especially wrong dev)
+DONE: set zero the previousBlock mapping when dispute is successful (so same root can be submitted again)
+DONE: remove it from chain and elsewhere in above case

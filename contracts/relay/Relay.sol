@@ -345,7 +345,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     ) external payable nonReentrant override returns (bool) {
         /*
             Steps:
-            1. Check the caller is paying enough collateral
+            1. Check the caller is paying correct amount of collateral
             2. Check if the Merkle root exists
             3. Check its dispute time has not passed
             4. Check it has not been disputed before
@@ -380,7 +380,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    // todo think which functions should be pausible which not
+    // todo think which functioprovides proof of the block's validityns should be pausible which not
 
     function getDisputeReward(
         bytes32 _blockMerkleRoot
@@ -391,6 +391,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             2. Check the Merkle root has been disputed
             3. Check the proof time is passed
             4. Check the Merkle root has not been verified
+            5. Remove the block and send back the collateral
         */
         uint _height = _findHeight(_blockMerkleRoot); // Reverts if header does not exist
         uint _idx = _findIndex(_blockMerkleRoot, _height);
@@ -411,6 +412,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             minCollateralRelayer * disputeRewardPercentage / ONE_HUNDRED_PERCENT
                 + minCollateralDisputer
         );
+        parentRoot[_blockMerkleRoot] = bytes32(0);
+        _removeFromChain(_blockMerkleRoot);
+        blockHeight[_blockMerkleRoot] = 0;
         numCollateralRelayer --;
         numCollateralDisputer --;
 
@@ -1016,6 +1020,18 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         newblockData.verified = false;
         newblockData.startDisputeTime = block.timestamp;
         chain[_height].push(newblockData);
+    }
+
+    function _removeFromChain(bytes32 _blockMerkleRoot) internal {
+        uint _blockHeight = blockHeight[_blockMerkleRoot];
+        uint index = _findIndex(_blockMerkleRoot, _blockHeight);
+        chain[_blockHeight][index].merkleRoot = bytes32(0);
+        chain[_blockHeight][index].relayer = address(0);
+        chain[_blockHeight][index].gasPrice = 0;
+        chain[_blockHeight][index].verified = false;
+        chain[_blockHeight][index].startDisputeTime = 0;
+        chain[_blockHeight][index].startProofTime = 0;
+        chain[_blockHeight][index].disputer = address(0);
     }
 
     /// @notice Reset the number of users in an epoch when a new epoch starts

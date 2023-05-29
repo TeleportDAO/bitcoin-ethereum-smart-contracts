@@ -1040,7 +1040,7 @@ describe("Relay", async () => {
                     genesis.merkle_root,
                     chain[0].merkle_root
                 )
-            ).to.revertedWith("Relay: low collateral")
+            ).to.revertedWith("Relay: wrong collateral")
         });
 
         it('errors if the anchor is unknown', async () => {
@@ -1879,7 +1879,7 @@ describe("Relay", async () => {
                 chain[1].merkle_root,
                 {value: ethers.utils.parseEther(disputerCollateral)}
             )
-            // signer 3 provides proof of the block's validity
+            // signer 3 triggers dispute reward to be sent to the disputer
             let signer1Balance0 = await signer1.getBalance();
             let signer2Balance0 = await signer2.getBalance();
             newTimestamp = await time.latest() + disputeTime;
