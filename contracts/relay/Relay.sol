@@ -794,13 +794,14 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         if(chain[_height][_idx].disputer != address(0)) {
             disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer;
             numCollateralDisputer --;
+            Address.sendValue(
+            payable(_msgSender()),
+                minCollateralDisputer * proofRewardPercentage / ONE_HUNDRED_PERCENT // TODO: send the rest to the treasury
+            ); 
         }
         // Sends relayer its collateral + reward (if disputer exists)
         Address.sendValue(payable(chain[_height][_idx].relayer), minCollateralRelayer);
-        Address.sendValue(
-            payable(_msgSender()),
-                minCollateralDisputer * proofRewardPercentage / ONE_HUNDRED_PERCENT // TODO: send the rest to the treasury
-        ); 
+        
         emit BlockVerified(
             _height,
             chain[_height][_idx].merkleRoot,
