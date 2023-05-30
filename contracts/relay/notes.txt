@@ -20,7 +20,6 @@ using setters when deploying
 TODO: add a mapping unverifiedParentRoot: concat(height, idx, root) -> parent root
 to check if the previously submitten root is verified yet or not 
 TODO: test target changing arrays
-TODO: stored data match -> input can be merkle root instead of height and idx
 TODO: combine checkEpochendBlock and checkRetarget functions
 TODO: _oldPeriodEndHeader can be right root and wrong time and target to prove a wrong new epoch header
 ????: combine _verifyHeader and _verifyHeaderAfterDispute
@@ -36,3 +35,4 @@ DONE: comments (addblock especially wrong dev)
 DONE: set zero the previousBlock mapping when dispute is successful (so same root can be submitted again)
 DONE: remove it from chain and elsewhere in above case
 DONE: in verify after dispute, don't send the dispute collateral if the header had not been disputed (add the payment to the if statement)
+DONE: stored data match -> input can be merkle root instead of height and idx

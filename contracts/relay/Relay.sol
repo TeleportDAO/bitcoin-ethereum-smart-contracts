@@ -685,7 +685,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         */
 
         _checkProofCanBeProvided(_height, _idx);
-        _checkStoredDataMatch(_anchor, _height, _idx);
+        _checkStoredDataMatch(_anchor, _blockMerkleRoot);
         if(_withRetarget) {
             require(
                 nonFinalizedEpochStartTimestamp[_idx] == _header.time(),
@@ -702,10 +702,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    function _checkStoredDataMatch(bytes29 _anchor, uint _height, uint _idx) internal view {
+    function _checkStoredDataMatch(bytes29 _anchor, bytes32 _blockMerkleRoot) internal view {
         // Checks parent merkle root matches
         require(
-            _anchor.merkleRoot() == parentRoot[chain[_height][_idx].merkleRoot], 
+            _anchor.merkleRoot() == parentRoot[_blockMerkleRoot], 
             "Relay: not match"
         );
     }
