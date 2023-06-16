@@ -441,7 +441,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         _checkInputSize(_oldEnd, _headerView);
         _checkEpochEndBlock(_oldEnd);
-        _checkRetarget(_oldEnd.time(), _oldEnd.target(), _headerView.target());
+        // _checkRetarget(_oldEnd.time(), _oldEnd.target(), _headerView.target());
+        _checkRetarget(_oldEnd.time(), currTarget, _headerView.target());
 
         return _checkHeaderProof(_oldEnd, _headerView, true);
     }
@@ -482,11 +483,17 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _checkInputSize(_headersView, _newStart); // repeated bcz the func has 2 inputs
 
         _checkEpochEndBlock(_oldEnd);
-        _checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
+        // _checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
+        _checkRetarget(_oldEnd.time(), currTarget, _newStart.target());
         nonFinalizedEpochStartTimestamp.push(_newStart.time());
         nonFinalizedCurrTarget.push(_newStart.target());
 
         return _ownerAddHeaders(_oldEnd, _headersView, true);
+    }
+
+    function rand(uint _height) external view override returns (bytes32) {
+        require(_height >= lastVerifiedHeight, "Relay: height not verified");
+        return chain[_height][0].merkleRoot; // TODO privacy?
     }
 
     // todo NatSpec
@@ -651,6 +658,16 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _endHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 2015,
             "Relay: wrong end height"
         );
+        // Block time should not be unreasonably large
+        require(
+            _oldEnd.time() < block.timestamp + 2 hours,
+            "Relay: anchor time incorrect"
+        );
+        // Checks that the header has sufficient work
+        require(
+            TypedMemView.reverseUint256(uint256(_oldEnd.hash256())) <= currTarget,
+            "Relay: insufficient work for anchor"
+        ); 
     }
     
     function _checkRetarget(uint256 _epochEndTimestamp, uint256 _oldEndTarget, uint256 _actualTarget) internal view {
@@ -781,13 +798,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             TypedMemView.reverseUint256(uint256(_header.hash256())) <= _target,
             "Relay: insufficient work"
         );
-    }
+    } 
 
     function _verifyHeaderAfterDispute(uint _height, uint _idx) internal {
         chain[_height][_idx].verified = true;
-        if (lastVerifiedHeight < _height) {
-            lastVerifiedHeight += 1;
-        }
+        
         relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
         numCollateralRelayer --;
         // below check is neccessary because the block might not have been disputed
@@ -801,6 +816,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         }
         // Sends relayer its collateral + reward (if disputer exists)
         Address.sendValue(payable(chain[_height][_idx].relayer), minCollateralRelayer);
+
+        if (lastVerifiedHeight < _height) {
+            lastVerifiedHeight += 1;
+            _updateFee();
+            _pruneChain();
+        }
         
         emit BlockVerified(
             _height,
@@ -816,7 +837,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         require(!chain[_height][_idx].verified, "Relay: already verified");
         // Proof time should not passed
         require(
-            (_isDisputed(_height, _idx) && !_proofTimePassed(_height, _idx)) 
+            (_isDisputed(_height, _idx) && !_proofTimePassed(_height, _idx)) // is it ok if verified and disputed? TODO check other places too
                 || !_isDisputed(_height, _idx),
             "Relay: proof time passed"
         );
@@ -885,6 +906,40 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
     }
 
+    /// @notice sends the collaterals back to Relayer and Disputer (if exists)
+    /// @dev called when a block is getting removed from the storage
+    function _sendCollateralsBack(uint _height, uint _idx) internal {
+        // relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
+        // // Sends back the Relayer collateral
+        // Address.sendValue(
+        //     payable(chain[_height][_idx].relayer), 
+        //     minCollateralRelayer
+        // );
+        // numCollateralRelayer --;
+        // emit SentBackCollateral(
+        //     _height,
+        //     chain[_height][_idx].merkleRoot,
+        //     parentRoot[chain[_height][_idx].merkleRoot],
+        //     chain[_height][_idx].relayer
+        // );
+
+        // if(_isDisputed(_height, _idx)) {
+        //     disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer; 
+        //     // Sends the disputer its collateral
+        //     Address.sendValue(
+        //         payable(chain[_height][_idx].disputer),
+        //         minCollateralDisputer
+        //     );
+        //     numCollateralDisputer --;
+        //     emit SentBackCollateral(
+        //         _height,
+        //         chain[_height][_idx].merkleRoot,
+        //         parentRoot[chain[_height][_idx].merkleRoot],
+        //         chain[_height][_idx].disputer
+        //     );
+        // } // todo: uncomment when runs
+    }
+
     /// @notice Adds merkle root to storage
     /// @dev We do not accept a merkle root on top of an unverified root
     /// @return True if successfully written
@@ -936,8 +991,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
                 _verifyHeader(_anchorHeight, _idx);
             }
         }
-        require(chain[_anchorHeight][_idx].verified, "Relay: previous block not verified"); // TODO: this line is unneccessary i guess?
-
         // Checks if any block gets finalized (handles when owner adds headers)
         if(_anchorHeight > lastVerifiedHeight){
             lastVerifiedHeight += 1;
@@ -1073,7 +1126,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             // Keep the finalized Merkle root and delete rest of roots
             if(chain[currentHeight].length > 1){
                 if(stableIdx != 0) {
-                    if(!chain[currentHeight][0].verified) {_verifyHeader(currentHeight, 0);}
+                    if(!chain[currentHeight][0].verified) {_sendCollateralsBack(currentHeight, 0);}
                     blockHeight[chain[currentHeight][0].merkleRoot] = 0; // Since we copy stableIdx in index 0 of chain, we need to remove index 0 Merkle root from blockHeight here
                     // store finalized merkle root at index 0
                     chain[currentHeight][0] = chain[currentHeight][stableIdx]; 
@@ -1117,7 +1170,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _idx = chain[_height].length - 1;
         while(_idx > 0){
             if(_idx != _stableIdx) {
-                if(!chain[_height][_idx].verified) {_verifyHeader(_height, _idx);}
+                if(!chain[_height][_idx].verified) {_sendCollateralsBack(_height, _idx);}
                 blockHeight[chain[_height][_idx].merkleRoot] = 0;
             }
             chain[_height].pop();

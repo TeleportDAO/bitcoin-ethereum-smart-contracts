@@ -88,7 +88,19 @@ interface IRelay {
             bytes32 indexed merkleRoot,
             address disputer,
             address indexed relayer
-        );
+    );
+
+    /// @notice                     Emits when some collateral is sent back because of block removal from the storage
+    /// @param height               Height of the block
+    /// @param merkleRoot          	Merkle root of the txs in the block
+    /// @param parentRoot           Merkle root of the parent block
+    /// @param relayerOrDisputer    Address of relayer who submitted the block data
+    event SentBackCollateral(
+            uint indexed height,
+            bytes32 indexed merkleRoot,
+            bytes32 parentRoot,
+            address indexed relayerOrDisputer
+    );
          
     /// @notice                     Emits when changes made to reward amount in TDT
     event NewRewardAmountInTDT (uint oldRewardAmountInTDT, uint newRewardAmountInTDT);
@@ -190,6 +202,8 @@ interface IRelay {
     function currTarget() external view returns(uint);
 
     function nonFinalizedCurrTarget(uint) external view returns(uint);
+
+    function rand(uint _height) external view returns (bytes32);
 
     // State-changing functions
 
