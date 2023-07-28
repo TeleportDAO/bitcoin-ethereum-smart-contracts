@@ -338,6 +338,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice Disputes an unverified Merkle root
+    /// @dev    We don't check if the block is verified or not, bcz if it is, disputer cannot get the reward and there will be np for the relayer
     /// @param  _blockMerkleRoot to dispute
     /// @return True if successfully passed
     function disputeBlock(
@@ -359,11 +360,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _height = _findHeight(_blockMerkleRoot); // Reverts if header does not exist
         uint _idx = _findIndex(_blockMerkleRoot, _height);
         require(
-            chain[_height][_idx].startDisputeTime + disputeTime > block.timestamp, 
+            _disputeTimePassed(_height, _idx),
             "Relay: dispute time passed"
         );
         require(
-            chain[_height][_idx].disputer == address(0),
+            _isDisputed(_height, _idx);,
             "Relay: disputed before"
         );
 
@@ -380,7 +381,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    // todo think which functioprovides proof of the block's validityns should be pausible which not
+    // todo think which functions should be pausible which not
 
     function getDisputeReward(
         bytes32 _blockMerkleRoot
@@ -425,7 +426,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes calldata _anchor, 
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
-        // todo check it wouldn't cause a problem if block wasn't disputed before (same for with retarget)
         bytes29 _headerView = _header.ref(0).tryAsHeader();
         bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
         _checkInputSize(_headerView, _anchorView);
@@ -741,7 +741,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return _current;
     }
 
-    // TODO: add checking the timestamp not be too high
     /// @notice Checks the validity of proof
     /// @dev Checks that _anchor is parent of _header and it has sufficient PoW
     function _checkProofValidity(

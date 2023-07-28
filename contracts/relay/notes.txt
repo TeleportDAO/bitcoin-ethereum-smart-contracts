@@ -17,14 +17,6 @@ using setters when deploying
 * if a natural fork comes up, the relayer of the abandoned block can later come provide a proof and get its collateral back
 (before the corresponding height gets finalized and pruned), dispute is not necessarily needed for providing proofs
 
-????: add a mapping unverifiedParentRoot: concat(height, idx, root) -> parent root
-to check if the previously submitten root is verified yet or not 
-TEST: test target changing arrays
-TODO: 2 TODO with uncomment when code is smaller
-
-DONE: _oldPeriodEndHeader can be right root and wrong time and target to prove a wrong new epoch header
-solution: check oldEnd.time < polygon time + 1 hour -> explain this in the docs how a malicious relayer could have attacked the system otherwise
-
 DONE: note that when pruning, you might delete a disputed block so the disputer could not get back his collateral
 DONE: in _pruneHeight do not verify the header (and probably for stableIdx in parent func)
     bcz it emits wrong event and if disputed before, the disputer loses his collateral
@@ -38,3 +30,11 @@ DONE: set zero the previousBlock mapping when dispute is successful (so same roo
 DONE: remove it from chain and elsewhere in above case
 DONE: in verify after dispute, don't send the dispute collateral if the header had not been disputed (add the payment to the if statement)
 DONE: stored data match -> input can be merkle root instead of height and idx
+
+????: add a mapping unverifiedParentRoot: concat(height, idx, root) -> parent root
+to check if the previously submitten root is verified yet or not 
+TEST: test target changing arrays
+TODO: 2 TODO with uncomment when code is smaller
+
+DONE: _oldPeriodEndHeader can be right root and wrong time and target to prove a wrong new epoch header
+solution: check oldEnd.time < polygon time + 1 hour -> explain this in the docs how a malicious relayer could have attacked the system otherwise
