@@ -3,6 +3,7 @@ pragma solidity >=0.8.0 <0.8.4;
 
 import "../libraries/TypedMemView.sol";
 import "../libraries/BitcoinHelper.sol";
+import "../libraries/RelayLib.sol";
 import "./interfaces/IRelay.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -51,7 +52,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint[] public override nonFinalizedCurrTarget;
 
     // Private and internal variables
-    mapping(uint => blockData[]) private chain; // height => list of block data
+    mapping(uint => RelayLib.blockData[]) private chain; // height => list of block data
     mapping(bytes32 => bytes32) internal parentRoot; // block Merkle root => parent Merkle root
     mapping(bytes32 => uint256) internal blockHeight; // block Merkle root => block height
     mapping(address => uint) internal relayersCollateral; // relayer address => locked collateral
@@ -77,7 +78,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         require(_genesisMerkleRoot != bytes32(0), "Relay: genesis root is zero");
         // genesis header and period start can be same
         relayGenesisMerkleRoot = _genesisMerkleRoot;
-        blockData memory newblockData;
+        RelayLib.blockData memory newblockData;
         newblockData.merkleRoot = _genesisMerkleRoot;
         newblockData.relayer = _msgSender();
         newblockData.gasPrice = 0;
@@ -116,13 +117,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    /// @notice Getter for a specific Merkle root in the stored chain
-    /// @param  _height of the desired Merkle root
-    /// @param  _index of the desired Merkle root in that height
-    /// @return Merkle root
-    function getBlockMerkleRoot(uint _height, uint _index) external view override returns (bytes32) {
-        return chain[_height][_index].merkleRoot;
-    } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
+    // /// @notice Getter for a specific Merkle root in the stored chain
+    // /// @param  _height of the desired Merkle root
+    // /// @param  _index of the desired Merkle root in that height
+    // /// @return Merkle root
+    // function getBlockMerkleRoot(uint _height, uint _index) external view override returns (bytes32) {
+    //     return chain[_height][_index].merkleRoot;
+    // } // todo where do we use this? prvsly it was getBlockHeaderHash... can't have public
 
     /// @notice Getter for fee of using a specific Merkle root
     /// @param  _height of the desired Merkle root
@@ -312,6 +313,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
+    /// @notice Adds Merkle root to storage
+    /// @param  _anchorMerkleRoot The merkle root immediately preceeding the new chain
+    /// @param  _blockMerkleRoot A merkle root
+    /// @return True if successfully stored
     function addBlockWithRetarget(
         bytes32 _anchorMerkleRoot, 
         bytes32 _blockMerkleRoot,
@@ -360,11 +365,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _height = _findHeight(_blockMerkleRoot); // Reverts if header does not exist
         uint _idx = _findIndex(_blockMerkleRoot, _height);
         require(
-            _disputeTimePassed(_height, _idx),
+            !_disputeTimePassed(chain[_height][_idx].startDisputeTime),
             "Relay: dispute time passed"
         );
         require(
-            _isDisputed(_height, _idx);,
+            !_isDisputed(chain[_height][_idx].disputer),
             "Relay: disputed before"
         );
 
@@ -396,8 +401,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         */
         uint _height = _findHeight(_blockMerkleRoot); // Reverts if header does not exist
         uint _idx = _findIndex(_blockMerkleRoot, _height);
-        require(_isDisputed(_height, _idx), "Relay: not disputed");
-        require(_proofTimePassed(_height, _idx), "Relay: proof time not passed");
+        require(_isDisputed(chain[_height][_idx].disputer), "Relay: not disputed");
+        require(_proofTimePassed(chain[_height][_idx].startProofTime), "Relay: proof time not passed");
         require(!chain[_height][_idx].verified, "Relay: already verified");
 
         emit DisputeReward(
@@ -414,7 +419,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
                 + minCollateralDisputer
         );
         parentRoot[_blockMerkleRoot] = bytes32(0);
-        _removeFromChain(_blockMerkleRoot);
+        RelayLib.removeFromChain(_height, _idx, chain);
         blockHeight[_blockMerkleRoot] = 0;
         numCollateralRelayer --;
         numCollateralDisputer --;
@@ -426,25 +431,52 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes calldata _anchor, 
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
+        RelayLib.Params memory params;
+        params.proofTime = proofTime;
+        params.currTarget = currTarget;
+        params.finalizationParameter = finalizationParameter;
+        params.nonFinalizedEpochStartTimestamp = nonFinalizedEpochStartTimestamp;
+        params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
+        RelayLib.provideProof(
+            _anchor, 
+            _header, 
+            chain, 
+            blockHeight, 
+            parentRoot,
+            params
+        );
         bytes29 _headerView = _header.ref(0).tryAsHeader();
-        bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
-        _checkInputSize(_headerView, _anchorView);
-        return _checkHeaderProof(_anchorView, _headerView, false);
+        uint _height = _findHeight(_headerView.merkleRoot());
+        uint _idx = _findIndex(_headerView.merkleRoot(), _height);
+        _verifyHeaderAfterDispute(_height, _idx);
+        return true;
     }
 
     function provideProofWithRetarget(
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
-        bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
+        RelayLib.Params memory params;
+        params.proofTime = proofTime;
+        params.currTarget = currTarget;
+        params.finalizationParameter = finalizationParameter;
+        params.nonFinalizedEpochStartTimestamp = nonFinalizedEpochStartTimestamp;
+        params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
+
+        RelayLib.provideProofWithRetarget(
+            _oldPeriodEndHeader, 
+            _header, 
+            chain, 
+            blockHeight, 
+            parentRoot,
+            params,
+            epochStartTimestamp
+        );
+
         bytes29 _headerView = _header.ref(0).tryAsHeader();
-
-        _checkInputSize(_oldEnd, _headerView);
-        _checkEpochEndBlock(_oldEnd);
-        // _checkRetarget(_oldEnd.time(), _oldEnd.target(), _headerView.target());
-        _checkRetarget(_oldEnd.time(), currTarget, _headerView.target());
-
-        return _checkHeaderProof(_oldEnd, _headerView, true);
+        uint _height = _findHeight(_headerView.merkleRoot());
+        _verifyHeaderAfterDispute(_height, _findIndex(_headerView.merkleRoot(), _height));
+        return true;
     }
 
     /// @notice Adds headers to storage after validating
@@ -459,10 +491,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     ) external nonReentrant onlyOwner override returns (bool) {
         bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
         bytes29 _headersView = _headers.ref(0).tryAsHeaderArray();
-
+        
         _checkInputSize(_headersView, _anchorView);
 
-        return _ownerAddHeaders(_anchorView, _headersView, false);
+        return _ownerAddHeaders(_anchor, _headers, false);
     }
 
     /// @notice Adds headers to storage, performs additional validation of retarget
@@ -482,19 +514,19 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         _checkInputSize(_headersView, _oldEnd);
         _checkInputSize(_headersView, _newStart); // repeated bcz the func has 2 inputs
 
-        _checkEpochEndBlock(_oldEnd);
-        // _checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
-        _checkRetarget(_oldEnd.time(), currTarget, _newStart.target());
-        nonFinalizedEpochStartTimestamp.push(_newStart.time());
-        nonFinalizedCurrTarget.push(_newStart.target());
+        _checkEpochEndBlock(_oldPeriodEndHeader);
+        // RelayLib.checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
+        RelayLib.checkRetarget(_oldEnd.time(), currTarget, _newStart.target(), epochStartTimestamp);
+        nonFinalizedEpochStartTimestamp.push(_newStart.time()); // TODO: print the second epoch this happens to see if the previous epoch's array got deleted or this adds to the length of it
+        nonFinalizedCurrTarget.push(_newStart.target()); // TODO: same as above (related to lines 1120-1122 todos)
 
-        return _ownerAddHeaders(_oldEnd, _headersView, true);
+        return _ownerAddHeaders(_oldPeriodEndHeader, _headers, true);
     }
 
-    function rand(uint _height) external view override returns (bytes32) {
-        require(_height >= lastVerifiedHeight, "Relay: height not verified");
-        return chain[_height][0].merkleRoot; // TODO privacy?
-    }
+    // function rand(uint _height) external view override returns (bytes32) {
+    //     require(_height >= lastVerifiedHeight, "Relay: height not verified");
+    //     return chain[_height][0].merkleRoot; // TODO privacy?
+    // } // TODO when uncomment => contract too big
 
     // todo NatSpec
 
@@ -598,24 +630,27 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         proofRewardPercentage = _proofRewardPercentage;
     }
 
-    function _ownerAddHeaders(bytes29 _anchor, bytes29 _headers, bool _withRetarget) internal returns (bool) {
-        bytes29 _newAnchor = _anchor;
+    function _ownerAddHeaders(bytes calldata _anchor, bytes calldata _headers, bool _withRetarget) internal returns (bool) {
+        bytes29 _newAnchorView = _anchor.ref(0).tryAsHeader();
+        bytes29 _headersView = _headers.ref(0).tryAsHeaderArray();
         bytes32 _anchorMerkleRoot;
         bytes32 _blockMerkleRoot;
-        for (uint256 i = 0; i < _headers.len() / 80; i++) {
-            bytes29 _header = _headers.indexHeaderArray(i);
-            _blockMerkleRoot = _header.merkleRoot();
-            _anchorMerkleRoot = _newAnchor.merkleRoot();
+        for (uint256 i = 0; i < _headersView.len() / 80; i++) {
+            bytes29 _headerView = _headersView.indexHeaderArray(i);
+            _blockMerkleRoot = _headerView.merkleRoot();
+            _anchorMerkleRoot = _newAnchorView.merkleRoot();
             _addBlock(_anchorMerkleRoot, _blockMerkleRoot, ((i == 0) ? _withRetarget : false));
-            // Extract basic info
-            uint256 _height = _findHeight(_blockMerkleRoot); // revert if the block is unknown
-            uint _idx = _findIndex(_blockMerkleRoot, _height);
 
             // check the proof validity: no retarget, hash link good, enough PoW
-            _checkProofValidity(_newAnchor, _header, ((i == 0) ? _withRetarget : false));
+            RelayLib.Params memory params;
+            params.currTarget = currTarget;
+            params.finalizationParameter = finalizationParameter;
+            params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
+            RelayLib.ownerAddHeader(_anchor, _headers, _withRetarget, parentRoot, chain, blockHeight, params, i);
 
             // Marks Merkle root as verified (owner doesn't put collateral for submitting blocks)
-            chain[_height][_idx].verified = true; 
+            uint _height = _findHeight(_blockMerkleRoot);
+            chain[_height][_findIndex(_blockMerkleRoot, _height)].verified = true; 
             emit BlockVerified(
                 _height,
                 _blockMerkleRoot,
@@ -623,7 +658,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
                 _msgSender(),
                 address(0)
             );
-            _newAnchor = _header;
+            _newAnchorView = _headerView;
         }
         return true;
     }
@@ -634,8 +669,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             // check for a new verified Mekrle root
             for(uint _idx = 0; _idx < chain[lastSubmittedHeight].length; _idx++) {
                 if (
-                    !_isDisputed(lastSubmittedHeight, _idx) &&
-                    _disputeTimePassed(lastSubmittedHeight, _idx)
+                    !_isDisputed(chain[lastSubmittedHeight][_idx].disputer) &&
+                    _disputeTimePassed(chain[lastSubmittedHeight][_idx].startDisputeTime)
                 ) {
                     _verifyHeader(lastSubmittedHeight, _idx); // verify the Merkle root
                     // if new block verified, update finalized stats
@@ -649,155 +684,22 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
-    function _checkEpochEndBlock(bytes29 _oldEnd) internal view {
+    /// @notice                 Checks the size of addHeader inputs 
+    /// @param  _headerView1    Input to the provideProof functions
+    /// @param  _headerView2    Input to the provideProof functions
+    function _checkInputSize(bytes29 _headerView1, bytes29 _headerView2) internal pure {
+        require(
+            _headerView1.notNull() && _headerView2.notNull(),
+            "Relay: bad args. Check header and array byte lengths."
+        );
+    }
+
+    function _checkEpochEndBlock(bytes calldata _oldPeriodEndHeader) internal view {
+        bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
         // Requires that the block is known
         uint256 _endHeight = _findHeight(_oldEnd.merkleRoot());
-
-        // Retargets should happen at 2016 block intervals
-        require(
-            _endHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 2015,
-            "Relay: wrong end height"
-        );
-        // Block time should not be unreasonably large
-        require(
-            _oldEnd.time() < block.timestamp + 2 hours,
-            "Relay: anchor time incorrect"
-        );
-        // Checks that the header has sufficient work
-        require(
-            TypedMemView.reverseUint256(uint256(_oldEnd.hash256())) <= currTarget,
-            "Relay: insufficient work for anchor"
-        ); 
+        RelayLib.checkEpochEndBlock(_oldPeriodEndHeader, _endHeight, currTarget);
     }
-    
-    function _checkRetarget(uint256 _epochEndTimestamp, uint256 _oldEndTarget, uint256 _actualTarget) internal view {
-        /* NB: This comparison looks weird because header nBits encoding truncates targets */
-        uint256 _expectedTarget = BitcoinHelper.retargetAlgorithm(
-            _oldEndTarget,
-            epochStartTimestamp,
-            _epochEndTimestamp
-        );
-        require(
-            (_actualTarget & _expectedTarget) == _actualTarget, 
-            "Relay: invalid retarget"
-        );
-    }
-
-    function _checkHeaderProof(
-        bytes29 _anchor, 
-        bytes29 _header, 
-        bool _withRetarget
-    ) internal returns (bool) {
-        // Extracts basic info
-        bytes32 _blockMerkleRoot = _header.merkleRoot();
-        uint256 _height = _findHeight(_blockMerkleRoot); // Revert if the block is unknown
-        uint _idx = _findIndex(_blockMerkleRoot, _height);
-
-        /*
-            1. Check block is not verified yet & proof time not passed
-            2. Match the stored data with provided data: parent merkle root
-            3. Check the provided timestamp and target are correct
-            4. Checks the proof validity: no retarget & hash link good & enough PoW
-            5. Mark the header as verified and give back the collateral to relayer
-        */
-
-        _checkProofCanBeProvided(_height, _idx);
-        _checkStoredDataMatch(_anchor, _blockMerkleRoot);
-        if(_withRetarget) {
-            require(
-                nonFinalizedEpochStartTimestamp[_idx] == _header.time(),
-                "Relay: incorrect timestamp"
-            );
-            require(
-                nonFinalizedCurrTarget[_idx] == _header.target(),
-                "Relay: incorrect target"
-            );
-        }
-        _checkProofValidity(_anchor, _header, _withRetarget);
-        _verifyHeaderAfterDispute(_height, _idx);
-
-        return true;
-    }
-
-    function _checkStoredDataMatch(bytes29 _anchor, bytes32 _blockMerkleRoot) internal view {
-        // Checks parent merkle root matches
-        require(
-            _anchor.merkleRoot() == parentRoot[_blockMerkleRoot], 
-            "Relay: not match"
-        );
-    }
-
-    // @notice              Finds an ancestor for a block by its merkle root
-    /// @dev                Will fail if the header is unknown
-    /// @param _merkleRoot  The header merkle root to search for
-    /// @param _offset      The depth which is going to be searched
-    /// @return             The height of the header, or error if unknown
-    function _findAncestor(bytes32 _merkleRoot, uint256 _offset) internal view returns (bytes32) {
-        bytes32 _current = _merkleRoot;
-        for (uint256 i = 0; i < _offset; i++) {
-            _current = parentRoot[_current];
-        }
-        require(_current != bytes32(0), "BitcoinRelay: unknown ancestor");
-        return _current;
-    }
-
-    /// @notice Checks the validity of proof
-    /// @dev Checks that _anchor is parent of _header and it has sufficient PoW
-    function _checkProofValidity(
-        bytes29 _anchor, 
-        bytes29 _header, 
-        bool _withRetarget
-    ) internal view {
-        // Extracts basic info
-        bytes32 _anchorMerkleRoot = _anchor.merkleRoot();
-        uint _anchorHeight = _findHeight(_anchorMerkleRoot); // Reverts if the header doesn't exist
-        uint256 _height = _anchorHeight + 1;
-        uint256 _target = _header.target();
-        uint _idxInEpoch = _height % BitcoinHelper.RETARGET_PERIOD_BLOCKS;
-
-        // Checks targets are same in the case of no-retarget
-        require(
-            _withRetarget || _anchor.target() == _target,
-            "Relay: unexpected retarget"
-        );
-
-        // check the target matches the storage
-        if(
-            !_withRetarget &&
-            _idxInEpoch <= finalizationParameter &&
-            nonFinalizedCurrTarget.length != 0
-        ) {
-            // check _target matches with its ancestor's saved target in nonFinalizedCurrTarget
-            require(
-                nonFinalizedCurrTarget[_findIndex(_findAncestor(_header.merkleRoot(), _idxInEpoch), _height - _idxInEpoch)]
-                == _target,
-                "Relay: targets do not match"
-            );
-        } else {
-            require(
-                _withRetarget || (currTarget & _target) == _target, // TODO remove &?
-                "Relay: wrong target"
-            );
-        }
-
-        // Blocks that are multiplies of 2016 should be submitted using provideProofWithRetarget
-        require(
-            _withRetarget || _idxInEpoch != 0,
-            "Relay: wrong func"
-        );
-
-        // Checks previous block link is correct
-        require(
-            _header.checkParent(_anchor.hash256()), 
-            "Relay: no link"
-        );
-        
-        // Checks that the header has sufficient work
-        require(
-            TypedMemView.reverseUint256(uint256(_header.hash256())) <= _target,
-            "Relay: insufficient work"
-        );
-    } 
 
     function _verifyHeaderAfterDispute(uint _height, uint _idx) internal {
         chain[_height][_idx].verified = true;
@@ -828,27 +730,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             parentRoot[chain[_height][_idx].merkleRoot],
             chain[_height][_idx].relayer,
             chain[_height][_idx].disputer
-        );
-    }
-
-    function _checkProofCanBeProvided(uint _height, uint _idx) internal view {
-        // Should not been verified before
-        require(!chain[_height][_idx].verified, "Relay: already verified");
-        // Proof time should not passed
-        require(
-            (_isDisputed(_height, _idx) && !_proofTimePassed(_height, _idx)) // is it ok if verified and disputed? TODO check other places too
-                || !_isDisputed(_height, _idx),
-            "Relay: proof time passed"
-        );
-    }
-
-    /// @notice                 Checks the size of addHeader inputs 
-    /// @param  _headerView1    Input to the provideProof functions
-    /// @param  _headerView2    Input to the provideProof functions
-    function _checkInputSize(bytes29 _headerView1, bytes29 _headerView2) internal pure {
-        require(
-            _headerView1.notNull() && _headerView2.notNull(),
-            "Relay: bad args. Check header and array byte lengths."
         );
     }
 
@@ -908,35 +789,35 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice sends the collaterals back to Relayer and Disputer (if exists)
     /// @dev called when a block is getting removed from the storage
     function _sendCollateralsBack(uint _height, uint _idx) internal {
-        // relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
-        // // Sends back the Relayer collateral
-        // Address.sendValue(
-        //     payable(chain[_height][_idx].relayer), 
-        //     minCollateralRelayer
-        // );
-        // numCollateralRelayer --;
-        // emit SentBackCollateral(
-        //     _height,
-        //     chain[_height][_idx].merkleRoot,
-        //     parentRoot[chain[_height][_idx].merkleRoot],
-        //     chain[_height][_idx].relayer
-        // );
+        relayersCollateral[chain[_height][_idx].relayer] -= minCollateralRelayer;
+        // Sends back the Relayer collateral
+        Address.sendValue(
+            payable(chain[_height][_idx].relayer), 
+            minCollateralRelayer
+        );
+        numCollateralRelayer --;
+        emit SentBackCollateral(
+            _height,
+            chain[_height][_idx].merkleRoot,
+            parentRoot[chain[_height][_idx].merkleRoot],
+            chain[_height][_idx].relayer
+        );
 
-        // if(_isDisputed(_height, _idx)) {
-        //     disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer; 
-        //     // Sends the disputer its collateral
-        //     Address.sendValue(
-        //         payable(chain[_height][_idx].disputer),
-        //         minCollateralDisputer
-        //     );
-        //     numCollateralDisputer --;
-        //     emit SentBackCollateral(
-        //         _height,
-        //         chain[_height][_idx].merkleRoot,
-        //         parentRoot[chain[_height][_idx].merkleRoot],
-        //         chain[_height][_idx].disputer
-        //     );
-        // } // todo: uncomment when runs
+        if(_isDisputed(chain[_height][_idx].disputer)) {
+            disputersCollateral[chain[_height][_idx].disputer] -= minCollateralDisputer; 
+            // Sends the disputer its collateral
+            Address.sendValue(
+                payable(chain[_height][_idx].disputer),
+                minCollateralDisputer
+            );
+            numCollateralDisputer --;
+            emit SentBackCollateral(
+                _height,
+                chain[_height][_idx].merkleRoot,
+                parentRoot[chain[_height][_idx].merkleRoot],
+                chain[_height][_idx].disputer
+            );
+        } // todo: uncomment when runs
     }
 
     /// @notice Adds merkle root to storage
@@ -982,8 +863,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         uint _idx = _findIndex(_anchorMerkleRoot, _anchorHeight); 
 
         // Checks if a previous height block gets verified
-        if (!_isDisputed(_anchorHeight, _idx)) {
-            require(_disputeTimePassed(_anchorHeight, _idx) || chain[_anchorHeight][_idx].verified, "Relay: not verified");
+        if (!_isDisputed(chain[_anchorHeight][_idx].disputer)) {
+            require(_disputeTimePassed(chain[_anchorHeight][_idx].startDisputeTime) || chain[_anchorHeight][_idx].verified, "Relay: not verified");
 
             // Verifies _anchorMerkleRoot if it hasn't verified
             if (!chain[_anchorHeight][_idx].verified) {
@@ -999,24 +880,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         parentRoot[_blockMerkleRoot] = _anchorMerkleRoot;
         blockHeight[_blockMerkleRoot] = _height;
-        _addToChain(_blockMerkleRoot, _height);
+        RelayLib.addToChain(_blockMerkleRoot, _height, _msgSender(), chain);
         emit BlockAdded(_height, _blockMerkleRoot, _anchorMerkleRoot, _msgSender());
         
         return true;
-    }
-
-    /// @notice Returns true if Merkle root got disputed
-    function _isDisputed(uint _height, uint _idx) internal view returns (bool) {
-        return (chain[_height][_idx].disputer == address(0)) ? false : true;
-    }
-
-    /// @notice Returns true if dispute time is passed
-    function _disputeTimePassed(uint _height, uint _idx) internal view returns (bool) {
-        return (block.timestamp - chain[_height][_idx].startDisputeTime >= disputeTime) ? true : false;
-    }
-    
-    function _proofTimePassed(uint _height, uint _idx) internal view returns (bool) {
-        return (block.timestamp - chain[_height][_idx].startProofTime >= proofTime) ? true : false;
     }
 
     /// @notice Sends reward and compensation to the relayer
@@ -1062,31 +929,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
-    /// @notice Adds a Merkle root to the chain
-    /// @param  _blockMerkleRoot of the new block
-    /// @param  _height of the new block 
-    function _addToChain(bytes32 _blockMerkleRoot, uint _height) internal {
-        blockData memory newblockData;
-        newblockData.merkleRoot = _blockMerkleRoot;
-        newblockData.relayer = _msgSender();
-        newblockData.gasPrice = tx.gasprice;
-        newblockData.verified = false;
-        newblockData.startDisputeTime = block.timestamp;
-        chain[_height].push(newblockData);
-    }
-
-    function _removeFromChain(bytes32 _blockMerkleRoot) internal {
-        uint _blockHeight = blockHeight[_blockMerkleRoot];
-        uint index = _findIndex(_blockMerkleRoot, _blockHeight);
-        chain[_blockHeight][index].merkleRoot = bytes32(0);
-        chain[_blockHeight][index].relayer = address(0);
-        chain[_blockHeight][index].gasPrice = 0;
-        chain[_blockHeight][index].verified = false;
-        chain[_blockHeight][index].startDisputeTime = 0;
-        chain[_blockHeight][index].startProofTime = 0;
-        chain[_blockHeight][index].disputer = address(0);
-    }
-
     /// @notice Reset the number of users in an epoch when a new epoch starts
     /// @dev Updates fee if we enter a new epoch after verifying a new block
     function _updateFee() internal {
@@ -1095,6 +937,21 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             currentEpochQueries = 0;
         }
     }
+
+    /// @notice Returns true if Merkle root got disputed
+    function _isDisputed(address _disputer) internal pure returns (bool) {
+        return (_disputer == address(0)) ? false : true;
+    }
+
+    /// @notice Returns true if dispute time is passed
+    function _disputeTimePassed(uint _startDisputeTime) internal view returns (bool) {
+        return (block.timestamp - _startDisputeTime >= disputeTime) ? true : false;
+    }
+
+    function _proofTimePassed(uint _startProofTime) internal view returns (bool) {
+        return (block.timestamp - _startProofTime >= proofTime) ? true : false;
+    }
+
 
     /// @notice Finalizes a Merkle root and removes all the other roots in that height
     /// @dev When a chain gets pruned, it only deletes blocks of that height. 
@@ -1148,7 +1005,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             );
         }
     }
-
+    
     /// @notice Finds index of Merkle root in a specific height
     /// @param  _blockMerkleRoot Desired Merkle root
     /// @param  _height of Merkle root

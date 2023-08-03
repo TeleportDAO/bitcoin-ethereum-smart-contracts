@@ -25,6 +25,9 @@ import { Relay__factory } from "../src/types/factories/Relay__factory";
 import { deployMockContract, MockContract } from "@ethereum-waffle/mock-contract";
 import { takeSnapshot, revertProvider } from "./block_utils";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { RelayLib } from "../src/types/RelayLib";
+import { RelayLib__factory } from "../src/types/factories/RelayLib__factory";
+import { RelayLibraryAddresses } from "../src/types/factories/RelayLib__factory"
 
 function revertBytes32(input: any) {
     let output = input.match(/[a-fA-F0-9]{2}/g).reverse().join('')
@@ -48,6 +51,7 @@ describe("Relay", async () => {
     let relay1: Relay;
     let relay2: Relay;
     let relay3: Relay;
+    let RelayLib: RelayLib;
 
     let deployer: Signer;
     let signer1: Signer;
@@ -75,7 +79,15 @@ describe("Relay", async () => {
     before(async () => {
         [deployer, signer1, signer2, signer3] = await ethers.getSigners();
 
+        RelayLib = await deployRelayLib()
+
+        let linkLibraryAddresses: RelayLibraryAddresses;
+
+        linkLibraryAddresses = {
+            "contracts/libraries/RelayLib.sol:RelayLib": RelayLib.address,
+        };
         relayFactory = new Relay__factory(
+            linkLibraryAddresses,
             deployer
         );
 
@@ -105,10 +117,32 @@ describe("Relay", async () => {
         await mockTDT.mock.transfer.returns(transfersTDT);
     }
 
+    const deployRelayLib = async (
+        _signer?: Signer
+    ): Promise<RelayLib> => {
+        const RelayLibFactory = new RelayLib__factory(
+            _signer || deployer
+        );
+
+        const RelayLib = await RelayLibFactory.deploy(
+        );
+
+        return RelayLib;
+    };
+
     const deployRelay = async (
         _signer?: Signer
     ): Promise<Relay> => {
+        RelayLib = await deployRelayLib()
+
+        let linkLibraryAddresses: RelayLibraryAddresses;
+
+        linkLibraryAddresses = {
+            "contracts/libraries/RelayLib.sol:RelayLib": RelayLib.address,
+        };
+
         const relayFactory = new Relay__factory(
+            linkLibraryAddresses,
             _signer || deployer
         );
 
@@ -143,7 +177,15 @@ describe("Relay", async () => {
         _target: any,
         _signer?: Signer
     ): Promise<Relay> => {
+        RelayLib = await deployRelayLib()
+
+        let linkLibraryAddresses: RelayLibraryAddresses;
+
+        linkLibraryAddresses = {
+            "contracts/libraries/RelayLib.sol:RelayLib": RelayLib.address,
+        };
         const relayFactory = new Relay__factory(
+            linkLibraryAddresses,
             _signer || deployer
         );
 
@@ -842,31 +884,31 @@ describe("Relay", async () => {
         });
     });
 
-    describe('#getBlockMerkleRoot', async () => {
-        /* eslint-disable-next-line camelcase */
-        const { chain, genesis, orphan_562630 } = REGULAR_CHAIN;
+    // describe('#getBlockMerkleRoot', async () => {
+    //     /* eslint-disable-next-line camelcase */
+    //     const { chain, genesis, orphan_562630 } = REGULAR_CHAIN;
 
-        beforeEach(async () => {
-            relay2 = await relayFactory.deploy(
-                genesis.merkle_root,
-                genesis.height,
-                orphan_562630.merkle_root,
-                genesis.timestamp,
-                startingTarget.toString(),
-                ZERO_ADDRESS
-            );
-        });
+    //     beforeEach(async () => {
+    //         relay2 = await relayFactory.deploy(
+    //             genesis.merkle_root,
+    //             genesis.height,
+    //             orphan_562630.merkle_root,
+    //             genesis.timestamp,
+    //             startingTarget.toString(),
+    //             ZERO_ADDRESS
+    //         );
+    //     });
 
-        it('views the merkle root correctly', async () => {
-            expect(
-                await relay2.addBlock(genesis.merkle_root, chain[0].merkle_root)
-            ).to.emit(relay2, "BlockAdded")
-            expect(
-                await relay2.getBlockMerkleRoot(chain[0].height, 0)
-            ).to.equal(chain[0].merkle_root)
-        });
+    //     it('views the merkle root correctly', async () => {
+    //         expect(
+    //             await relay2.addBlock(genesis.merkle_root, chain[0].merkle_root)
+    //         ).to.emit(relay2, "BlockAdded")
+    //         expect(
+    //             await relay2.getBlockMerkleRoot(chain[0].height, 0)
+    //         ).to.equal(chain[0].merkle_root)
+    //     });
 
-    });
+    // });
 
     describe('## Setters', async () => {
         /* eslint-disable-next-line camelcase */
@@ -1663,13 +1705,13 @@ describe("Relay", async () => {
                     chain[0].hex+'00',
                     chain[1].hex
                 )
-            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+            ).to.revertedWith("RelayLib: bad args. Check header and array byte lengths.")
             await expect(
                 relay2Signer2.provideProof(
                     chain[0].hex,
                     chain[1].hex+'00'
                 )
-            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+            ).to.revertedWith("RelayLib: bad args. Check header and array byte lengths.")
         });
 
         it('cannot provide proof if already verified', async () => {
@@ -1776,13 +1818,13 @@ describe("Relay", async () => {
                     chain[8].hex+'00',
                     chain[9].hex
                 )
-            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+            ).to.revertedWith("RelayLib: bad args. Check header and array byte lengths.")
             await expect(
                 relay2Signer2.provideProofWithRetarget(
                     chain[8].hex,
                     chain[9].hex+'00'
                 )
-            ).to.revertedWith("Relay: bad args. Check header and array byte lengths.")
+            ).to.revertedWith("RelayLib: bad args. Check header and array byte lengths.")
         });
     });
 
@@ -1833,7 +1875,7 @@ describe("Relay", async () => {
                     chain[0].hex,
                     chain[1].hex
                 )
-            ).to.revertedWith("Relay: proof time passed")
+            ).to.revertedWith("RelayLib: proof time passed")
             let signer1Balance1 = await signer1.getBalance();
             // check that the relayer doesn't get its collateral back because has submitted a malicious root
             expect(signer1Balance1.sub(signer1Balance0)).to.equal(BigNumber.from(0));

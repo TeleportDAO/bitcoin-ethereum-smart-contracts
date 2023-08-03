@@ -4,26 +4,6 @@ pragma solidity >=0.8.0 <0.8.4;
 interface IRelay {
     // Structures
 
-    /// @notice Structure for recording block data
-    /// @dev If the block data provided by the Relayer is not correct,
-    ///      it's collateral might get slashed
-    /// @param merkleRoot of the txs in the block
-    /// @param relayer Address of relayer who submitted the block data
-    /// @param gasPrice of tx that relayer submitted the block data
-    /// @param verified Whether the correctness of the block data is verified or not
-    /// @param startDisputeTime When timer starts for submitting a dispute
-    /// @param startProofTime When timer starts for providing the block proof
-    /// @param disputer The address that disputed the data of this block
-    struct blockData {
-        bytes32 merkleRoot;
-        address relayer;
-        uint gasPrice;
-        bool verified;
-        uint startDisputeTime;
-        uint startProofTime;
-        address disputer;
-    }
-
     // Events
 
     /// @notice                     Emits when a block is added
@@ -165,7 +145,7 @@ interface IRelay {
 
     function submissionGasUsed() external view returns(uint);
 
-    function getBlockMerkleRoot(uint height, uint index) external view returns(bytes32);
+    // function getBlockMerkleRoot(uint height, uint index) external view returns(bytes32);
 
     function getBlockUsageFee(uint _height, uint _index) external view returns(uint);
 
@@ -203,7 +183,7 @@ interface IRelay {
 
     function nonFinalizedCurrTarget(uint) external view returns(uint);
 
-    function rand(uint _height) external view returns (bytes32);
+    // function rand(uint _height) external view returns (bytes32);
 
     // State-changing functions
 
