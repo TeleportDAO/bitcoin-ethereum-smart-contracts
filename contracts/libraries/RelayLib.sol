@@ -34,6 +34,12 @@ library RelayLib {
         address disputer;
     }
 
+    /// @notice Structure for passing parameters
+    /// @param proofTime  The duration in which a proof can be provided (after getiing dispute)
+    /// @param currTarget The target difficulty of the current epoch
+    /// @param finalizationParameter of Relay
+    /// @param nonFinalizedEpochStartTimestamp Current epoch's timestamp that each new block introduces at the height of the first block in the epoch
+    /// @param nonFinalizedCurrTarget New epoch's target that each new block introduces at the height of the first block in the epoch
     struct Params {
         uint proofTime;
         uint currTarget;
@@ -45,6 +51,8 @@ library RelayLib {
     /// @notice Adds a Merkle root to the chain
     /// @param  _blockMerkleRoot of the new block
     /// @param  _height of the new block 
+    /// @param  _messageSender address of the relayer who submitted this block
+    /// @param  _chain mapping address of the chain of blocks
     function addToChain(bytes32 _blockMerkleRoot, uint _height, address _messageSender, mapping(uint => blockData[]) storage _chain) external {
         blockData memory newblockData;
         newblockData.merkleRoot = _blockMerkleRoot;
@@ -55,16 +63,28 @@ library RelayLib {
         _chain[_height].push(newblockData);
     }
 
-    function removeFromChain(uint _blockHeight, uint index, mapping(uint => blockData[]) storage _chain) external {
-        _chain[_blockHeight][index].merkleRoot = bytes32(0);
-        _chain[_blockHeight][index].relayer = address(0);
-        _chain[_blockHeight][index].gasPrice = 0;
-        _chain[_blockHeight][index].verified = false;
-        _chain[_blockHeight][index].startDisputeTime = 0;
-        _chain[_blockHeight][index].startProofTime = 0;
-        _chain[_blockHeight][index].disputer = address(0);
+    /// @notice Removes a Merkle root from the chain
+    /// @param  _blockHeight of the block to be removed
+    /// @param  _index of the block among the same height blocks
+    /// @param  _chain Address of the chain of blocks mapping
+    function removeFromChain(uint _blockHeight, uint _index, mapping(uint => blockData[]) storage _chain) external {
+        _chain[_blockHeight][_index].merkleRoot = bytes32(0);
+        _chain[_blockHeight][_index].relayer = address(0);
+        _chain[_blockHeight][_index].gasPrice = 0;
+        _chain[_blockHeight][_index].verified = false;
+        _chain[_blockHeight][_index].startDisputeTime = 0;
+        _chain[_blockHeight][_index].startProofTime = 0;
+        _chain[_blockHeight][_index].disputer = address(0);
     }
 
+    /// @notice Verifies the proof of correctness of a submitted block when there is no retarget
+    /// @param  _anchor The block header data of the anchor block
+    /// @param  _header The block header data of the new block being added
+    /// @param  _chain Address of the chain of blocks mapping
+    /// @param  _blockHeight Address of the block heights mapping
+    /// @param  _blockHeight Address of the block heights mapping
+    /// @param  _params A struct of relevant parameters
+    /// @return True if successfully passed
     function provideProof(
         bytes calldata _anchor, 
         bytes calldata _header, 
@@ -72,13 +92,22 @@ library RelayLib {
         mapping(bytes32 => uint256) storage _blockHeight, 
         mapping(bytes32 => bytes32) storage _parentRoot,
         Params memory _params
-    ) external returns(bool){
+    ) external view returns(bool){
         bytes29 _headerView = _header.ref(0).tryAsHeader();
         bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
         _checkInputSize(_headerView, _anchorView);
-        return checkHeaderProof(_anchorView, _headerView, false, _chain, _blockHeight, _parentRoot, _params);
+        return _checkHeaderProof(_anchorView, _headerView, false, _chain, _blockHeight, _parentRoot, _params);
     }
 
+    /// @notice Verifies the proof of correctness of a submitted block when there is no retarget
+    /// @param  _anchor The block header data of the anchor block
+    /// @param  _header The block header data of the new block being added
+    /// @param  _chain Address of the chain of blocks mapping
+    /// @param  _blockHeight Address of the block heights mapping
+    /// @param  _parentRoot Address of the parent block root mapping
+    /// @param  _params A struct of relevant parameters
+    /// @param  _epochStartTimestamp Current epoch's first block timestamp
+    /// @return True if successfully passed
     function provideProofWithRetarget(
         bytes calldata _anchor, 
         bytes calldata _header, 
@@ -87,7 +116,7 @@ library RelayLib {
         mapping(bytes32 => bytes32) storage _parentRoot,
         Params memory _params,
         uint _epochStartTimestamp
-    ) external returns(bool){
+    ) external view returns(bool){
         bytes29 _anchorView = _anchor.ref(0).tryAsHeader();
         bytes29 _headerView = _header.ref(0).tryAsHeader();
         _checkInputSize(_anchorView, _headerView);
@@ -95,10 +124,11 @@ library RelayLib {
         uint256 _anchorHeight = _findHeight(_anchorView.merkleRoot(), _blockHeight);
         checkEpochEndBlock(_anchor, _anchorHeight, _params.currTarget);
         checkRetarget(_anchorView.time(), _params.currTarget, _headerView.target(), _epochStartTimestamp);
-        return checkHeaderProof(_anchorView, _headerView, true, _chain, _blockHeight, _parentRoot, _params);
+        return _checkHeaderProof(_anchorView, _headerView, true, _chain, _blockHeight, _parentRoot, _params);
     }
 
-    function checkHeaderProof(
+    /// @notice Internal function for provideProof
+    function _checkHeaderProof(
         bytes29 _anchor,
         bytes29 _header,
         bool _withRetarget,
@@ -106,7 +136,7 @@ library RelayLib {
         mapping(bytes32 => uint256) storage _blockHeight, 
         mapping(bytes32 => bytes32) storage _parentRoot,
         Params memory _params
-    ) public view returns(bool) {
+    ) private view returns(bool) {
         /*
             1. Check block is not verified yet & proof time not passed
             2. Match the stored data with provided data: parent merkle root
@@ -127,12 +157,14 @@ library RelayLib {
                 "RelayLib: incorrect target"
             );
         }
-        checkProofValidity(_anchor, _header, _withRetarget, _parentRoot, _chain, _blockHeight, _params);
+        _checkProofValidity(_anchor, _header, _withRetarget, _parentRoot, _chain, _blockHeight, _params);
 
         return true;
     }
 
-    function ownerAddHeader(
+    /// @notice Checks the provided proof's correctness in terms of the Bitcoin consensus mechanism
+    /// @dev Can verify multiple headers at once
+    function checkProofValidity(
         bytes calldata _anchor, 
         bytes calldata _headers, 
         bool _withRetarget,
@@ -149,12 +181,52 @@ library RelayLib {
         } else {
             _anchorView = _headers.ref(0).tryAsHeaderArray().indexHeaderArray(headerIdx - 1);
         }
-        checkProofValidity(_anchorView, _headerView, ((headerIdx == 0)? _withRetarget : false), _parentRoot, _chain, _blockHeight, _params);
+        _checkProofValidity(_anchorView, _headerView, ((headerIdx == 0)? _withRetarget : false), _parentRoot, _chain, _blockHeight, _params);
     }
 
-    /// @notice Checks the validity of proof
+    /// @notice check that new target complies with the retarget algorithm
+    function checkRetarget(
+        uint256 _epochEndTimestamp, 
+        uint256 _oldEndTarget, 
+        uint256 _actualTarget, 
+        uint256 epochStartTimestamp
+    ) public pure {
+        /* NB: This comparison looks weird because header nBits encoding truncates targets */
+        uint256 _expectedTarget = BitcoinHelper.retargetAlgorithm(
+            _oldEndTarget,
+            epochStartTimestamp,
+            _epochEndTimestamp
+        );
+        require(
+            (_actualTarget & _expectedTarget) == _actualTarget, 
+            "RelayLib: invalid retarget"
+        );
+    }
+
+    /// @notice Checks the target related data for the last block of the epoch be correct
+    /// @dev In library func for _checkEpochEndBlock
+    function checkEpochEndBlock(bytes calldata _oldPeriodEndHeader, uint256 _endHeight, uint currTarget) public view {
+        bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
+        // Retargets should happen at 2016 block intervals
+        require(
+            _endHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 2015,
+            "RelayLib: wrong end height"
+        );
+        // Block time should not be unreasonably large
+        require(
+            _oldEnd.time() < block.timestamp + 2 hours,
+            "RelayLib: anchor time incorrect"
+        );
+        // Checks that the header has sufficient work
+        require(
+            TypedMemView.reverseUint256(uint256(_oldEnd.hash256())) <= currTarget,
+            "RelayLib: insufficient work for anchor"
+        ); 
+    }
+
+    /// @notice checkValidityProof internal function that verifies one header at a time
     /// @dev Checks that _anchor is parent of _header and it has sufficient PoW
-    function checkProofValidity(
+    function _checkProofValidity(
         bytes29 _anchor, 
         bytes29 _header, 
         bool _withRetarget,
@@ -162,7 +234,7 @@ library RelayLib {
         mapping(uint => blockData[]) storage _chain,
         mapping(bytes32 => uint256) storage _blockHeight, 
         Params memory _params
-    ) public view {
+    ) private view {
         // Extracts basic info
         uint _height = _findHeight(_anchor.merkleRoot(), _blockHeight) + 1; // Reverts if the header doesn't exist
         uint256 _target = _header.target();
@@ -212,43 +284,6 @@ library RelayLib {
         );
     }
 
-    function checkRetarget(
-        uint256 _epochEndTimestamp, 
-        uint256 _oldEndTarget, 
-        uint256 _actualTarget, 
-        uint256 epochStartTimestamp
-    ) public pure {
-        /* NB: This comparison looks weird because header nBits encoding truncates targets */
-        uint256 _expectedTarget = BitcoinHelper.retargetAlgorithm(
-            _oldEndTarget,
-            epochStartTimestamp,
-            _epochEndTimestamp
-        );
-        require(
-            (_actualTarget & _expectedTarget) == _actualTarget, 
-            "RelayLib: invalid retarget"
-        );
-    }
-
-    function checkEpochEndBlock(bytes calldata _oldPeriodEndHeader, uint256 _endHeight, uint currTarget) public view {
-        bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
-        // Retargets should happen at 2016 block intervals
-        require(
-            _endHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 2015,
-            "RelayLib: wrong end height"
-        );
-        // Block time should not be unreasonably large
-        require(
-            _oldEnd.time() < block.timestamp + 2 hours,
-            "RelayLib: anchor time incorrect"
-        );
-        // Checks that the header has sufficient work
-        require(
-            TypedMemView.reverseUint256(uint256(_oldEnd.hash256())) <= currTarget,
-            "RelayLib: insufficient work for anchor"
-        ); 
-    }
-
     /// @notice                 Checks the size of addHeader inputs 
     /// @param  _headerView1    Input to the provideProof functions
     /// @param  _headerView2    Input to the provideProof functions
@@ -285,6 +320,7 @@ library RelayLib {
         }
     }
 
+    /// @notice Check the conditions needed to be met for being able to provide a proof
     function _checkProofCanBeProvided(
         bytes32 _blockMerkleRoot, 
         mapping(bytes32 => uint256) storage _blockHeight, 
@@ -309,10 +345,12 @@ library RelayLib {
         return (_disputer == address(0)) ? false : true;
     }
 
+    /// @notice Returns true if proof time is passed
     function _proofTimePassed(uint _startProofTime, uint _proofTime) private view returns (bool) {
         return (block.timestamp - _startProofTime >= _proofTime) ? true : false;
     }
 
+    /// @notice check the provided parent Merkle root matches the storage
     function _checkStoredDataMatch(bytes32 _anchorMerkleRoot, bytes32 _blockMerkleRoot, mapping(bytes32 => bytes32) storage _parentRoot) private view {
         // Checks parent merkle root matches
         require(

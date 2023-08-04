@@ -65,6 +65,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @param  _genesisMerkleRoot The starting header Merkle root
     /// @param  _height The starting height of relay
     /// @param  _periodStart The Merkle root of the first header in the genesis epoch
+    /// @param  _periodStartTimestamp The timestamp of the first header in the genesis epoch
+    /// @param  _currTarget The target difficulty of the current epoch
     /// @param  _TeleportDAOToken The address of the TeleportDAO ERC20 token contract
     constructor(
         bytes32 _genesisMerkleRoot, 
@@ -313,9 +315,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
-    /// @notice Adds Merkle root to storage
-    /// @param  _anchorMerkleRoot The merkle root immediately preceeding the new chain
-    /// @param  _blockMerkleRoot A merkle root
+    /// @notice Adds Merkle root to storage when retargetting happens
+    /// @param  _anchorMerkleRoot   The merkle root immediately preceeding the new chain
+    /// @param  _blockMerkleRoot    A merkle root
+    /// @param  _blockTimestamp     timestamp of the new block being added
+    /// @param  _newTarget          target difficulty of the new epoch
     /// @return True if successfully stored
     function addBlockWithRetarget(
         bytes32 _anchorMerkleRoot, 
@@ -388,6 +392,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     // todo think which functions should be pausible which not
 
+    /// @notice Get the correct distpute's reward and get dispute collateral back
+    /// @param  _blockMerkleRoot been disputed
+    /// @return True if successfully passed
     function getDisputeReward(
         bytes32 _blockMerkleRoot
     ) external nonReentrant whenNotPaused override returns (bool) {
@@ -427,6 +434,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
+    /// @notice Verifies the proof of correctness of a submitted block when there is no retarget
+    /// if verified, this gives back the Relayer collateral and a reward in case the block had been disputed
+    /// @param  _anchor the block header data of the anchor block
+    /// @param  _header the block header data of the new block being added
+    /// @return True if successfully passed
     function provideProof(
         bytes calldata _anchor, 
         bytes calldata _header
@@ -452,6 +464,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
+    /// @notice Provide the proof of correctness in case the Merkle root has been disputed when there is retarget
+    /// this function gives back the Relayer collateral and a reward in case the block had been disputed
+    /// @param  _oldPeriodEndHeader the block header data of the anchor block
+    /// @param  _header             the block header data of the new block being added
+    /// @return True if successfully passed
     function provideProofWithRetarget(
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
@@ -630,6 +647,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         proofRewardPercentage = _proofRewardPercentage;
     }
 
+    /// @notice Internal function for ownerAddHeaders
     function _ownerAddHeaders(bytes calldata _anchor, bytes calldata _headers, bool _withRetarget) internal returns (bool) {
         bytes29 _newAnchorView = _anchor.ref(0).tryAsHeader();
         bytes29 _headersView = _headers.ref(0).tryAsHeaderArray();
@@ -646,7 +664,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             params.currTarget = currTarget;
             params.finalizationParameter = finalizationParameter;
             params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
-            RelayLib.ownerAddHeader(_anchor, _headers, _withRetarget, parentRoot, chain, blockHeight, params, i);
+            RelayLib.checkProofValidity(_anchor, _headers, _withRetarget, parentRoot, chain, blockHeight, params, i);
 
             // Marks Merkle root as verified (owner doesn't put collateral for submitting blocks)
             uint _height = _findHeight(_blockMerkleRoot);
@@ -663,10 +681,11 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return true;
     }
 
+    /// @notice If we have any unverified blocks, here we check whether any of them have got verified (their dispute time has passed)
     function _updateVerifiedAndFinalizedStats() internal {
         uint lastSubmittedHeight = lastVerifiedHeight + 1;
         if (chain[lastSubmittedHeight].length != 0) { // if there is any unverified Merkle root
-            // check for a new verified Mekrle root
+            // check for a new verified Merkle root
             for(uint _idx = 0; _idx < chain[lastSubmittedHeight].length; _idx++) {
                 if (
                     !_isDisputed(chain[lastSubmittedHeight][_idx].disputer) &&
@@ -694,6 +713,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         );
     }
 
+    /// @notice Checks the target related data for the last block of the epoch be correct
     function _checkEpochEndBlock(bytes calldata _oldPeriodEndHeader) internal view {
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
         // Requires that the block is known
@@ -701,6 +721,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         RelayLib.checkEpochEndBlock(_oldPeriodEndHeader, _endHeight, currTarget);
     }
 
+    /// @notice Verify the header and give the collateral back to the Relayer
     function _verifyHeaderAfterDispute(uint _height, uint _idx) internal {
         chain[_height][_idx].verified = true;
         
@@ -948,6 +969,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         return (block.timestamp - _startDisputeTime >= disputeTime) ? true : false;
     }
 
+    /// @notice Returns true if proof time is passed
     function _proofTimePassed(uint _startProofTime) internal view returns (bool) {
         return (block.timestamp - _startProofTime >= proofTime) ? true : false;
     }
