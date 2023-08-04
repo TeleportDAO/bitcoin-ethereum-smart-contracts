@@ -129,7 +129,7 @@ interface IRelay {
 
     function lastVerifiedHeight() external view returns(uint);
 
-    function finalizationParameter() external view returns(uint);
+    // function finalizationParameter() external view returns(uint);
 
     function TeleportDAOToken() external view returns(address);
 
@@ -169,7 +169,7 @@ interface IRelay {
 
     function disputeTime() external view returns(uint);
 
-    function proofTime() external view returns(uint);
+    // function proofTime() external view returns(uint); // todo: see if we need the commented params here return them in the code
 
     function disputeRewardPercentage() external view returns(uint);
 
@@ -177,11 +177,11 @@ interface IRelay {
 
     function epochStartTimestamp() external view returns(uint);
 
-    function nonFinalizedEpochStartTimestamp(uint) external view returns(uint);
+    // function nonFinalizedEpochStartTimestamp(uint) external view returns(uint);
 
-    function currTarget() external view returns(uint);
+    // function currTarget() external view returns(uint);
 
-    function nonFinalizedCurrTarget(uint) external view returns(uint);
+    // function nonFinalizedCurrTarget(uint) external view returns(uint);
 
     // function rand(uint _height) external view returns (bytes32);
 

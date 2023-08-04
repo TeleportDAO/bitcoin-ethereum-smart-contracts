@@ -28,7 +28,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     uint public override initialHeight;
     uint public override lastVerifiedHeight;
-    uint public override finalizationParameter;
     uint public override rewardAmountInTDT;
     uint public override relayerPercentageFee; // A number between [0, 10000)
     uint public override submissionGasUsed; // Gas used for submitting a Merkle root
@@ -37,7 +36,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override currentEpochQueries;
     uint public override lastEpochQueries;
     uint public override disputeTime;
-    uint public override proofTime;
     address public override TeleportDAOToken;
     bytes32 public override relayGenesisMerkleRoot; // Initial Merkle root of relay
     uint public override minCollateralRelayer;
@@ -47,9 +45,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     uint public override disputeRewardPercentage;
     uint public override proofRewardPercentage;
     uint public override epochStartTimestamp;
-    uint[] public override nonFinalizedEpochStartTimestamp;
-    uint public override currTarget;
-    uint[] public override nonFinalizedCurrTarget;
+    RelayLib.Params public params;
 
     // Private and internal variables
     mapping(uint => RelayLib.blockData[]) private chain; // height => list of block data
@@ -89,7 +85,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         blockHeight[_genesisMerkleRoot] = _height;
         blockHeight[_periodStart] = _height - (_height % BitcoinHelper.RETARGET_PERIOD_BLOCKS);
         epochStartTimestamp = _periodStartTimestamp;
-        currTarget = _currTarget;
+        params.currTarget = _currTarget;
 
         // Relay parameters
         _setFinalizationParameter(5);
@@ -264,13 +260,13 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         require(_txid != bytes32(0), "Relay: txid should be non-zero");
 
         // Update status of Merkle roots of last submitted height (if any of them gets verified)
-        if (_blockHeight + finalizationParameter == lastVerifiedHeight + 1) {
+        if (_blockHeight + params.finalizationParameter == lastVerifiedHeight + 1) {
             _updateVerifiedAndFinalizedStats();
         }
 
         // Revert if the block is not finalized
         require(
-            _blockHeight + finalizationParameter <= lastVerifiedHeight,
+            _blockHeight + params.finalizationParameter <= lastVerifiedHeight,
             "Relay: not finalized"
         );
 
@@ -338,8 +334,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             "Relay: zero input"
         );
 
-        nonFinalizedEpochStartTimestamp.push(_blockTimestamp);
-        nonFinalizedCurrTarget.push(_newTarget);
+        params.nonFinalizedEpochStartTimestamp.push(_blockTimestamp);
+        params.nonFinalizedCurrTarget.push(_newTarget);
         
         _addBlock(_anchorMerkleRoot, _blockMerkleRoot, true);
 
@@ -443,12 +439,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes calldata _anchor, 
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
-        RelayLib.Params memory params;
-        params.proofTime = proofTime;
-        params.currTarget = currTarget;
-        params.finalizationParameter = finalizationParameter;
-        params.nonFinalizedEpochStartTimestamp = nonFinalizedEpochStartTimestamp;
-        params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
         RelayLib.provideProof(
             _anchor, 
             _header, 
@@ -473,13 +463,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes calldata _oldPeriodEndHeader,
         bytes calldata _header
     ) external nonReentrant whenNotPaused override returns (bool) {
-        RelayLib.Params memory params;
-        params.proofTime = proofTime;
-        params.currTarget = currTarget;
-        params.finalizationParameter = finalizationParameter;
-        params.nonFinalizedEpochStartTimestamp = nonFinalizedEpochStartTimestamp;
-        params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
-
         RelayLib.provideProofWithRetarget(
             _oldPeriodEndHeader, 
             _header, 
@@ -533,9 +516,9 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
         _checkEpochEndBlock(_oldPeriodEndHeader);
         // RelayLib.checkRetarget(_oldEnd.time(), _oldEnd.target(), _newStart.target());
-        RelayLib.checkRetarget(_oldEnd.time(), currTarget, _newStart.target(), epochStartTimestamp);
-        nonFinalizedEpochStartTimestamp.push(_newStart.time()); // TODO: print the second epoch this happens to see if the previous epoch's array got deleted or this adds to the length of it
-        nonFinalizedCurrTarget.push(_newStart.target()); // TODO: same as above (related to lines 1120-1122 todos)
+        RelayLib.checkRetarget(_oldEnd.time(), params.currTarget, _newStart.target(), epochStartTimestamp);
+        params.nonFinalizedEpochStartTimestamp.push(_newStart.time()); // TODO: print the second epoch this happens to see if the previous epoch's array got deleted or this adds to the length of it
+        params.nonFinalizedCurrTarget.push(_newStart.target()); // TODO: same as above (related to lines 1120-1122 todos)
 
         return _ownerAddHeaders(_oldPeriodEndHeader, _headers, true);
     }
@@ -558,13 +541,12 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Internal setter for finalizationParameter
     function _setFinalizationParameter(uint _finalizationParameter) private {
-        emit NewFinalizationParameter(finalizationParameter, _finalizationParameter);
+        emit NewFinalizationParameter(params.finalizationParameter, _finalizationParameter);
         require(
             _finalizationParameter > 0 && _finalizationParameter <= MAX_FINALIZATION_PARAMETER,
             "Relay: invalid finalization param"
         );
-
-        finalizationParameter = _finalizationParameter;
+        params.finalizationParameter = _finalizationParameter;
     }
 
     /// @notice Internal setter for relayerPercentageFee
@@ -619,8 +601,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     /// @notice Internal setter for proofTime
     function _setProofTime(uint _proofTime) private {
         require(_proofTime >= MIN_PROOF_TIME);
-        emit NewProofTime(proofTime, _proofTime);
-        proofTime = _proofTime;
+        emit NewProofTime(params.proofTime, _proofTime);
+        params.proofTime = _proofTime;
     }
 
     /// @notice Internal setter for minCollateralRelayer
@@ -660,10 +642,6 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
             _addBlock(_anchorMerkleRoot, _blockMerkleRoot, ((i == 0) ? _withRetarget : false));
 
             // check the proof validity: no retarget, hash link good, enough PoW
-            RelayLib.Params memory params;
-            params.currTarget = currTarget;
-            params.finalizationParameter = finalizationParameter;
-            params.nonFinalizedCurrTarget = nonFinalizedCurrTarget;
             RelayLib.checkProofValidity(_anchor, _headers, _withRetarget, parentRoot, chain, blockHeight, params, i);
 
             // Marks Merkle root as verified (owner doesn't put collateral for submitting blocks)
@@ -718,7 +696,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         bytes29 _oldEnd = _oldPeriodEndHeader.ref(0).tryAsHeader();
         // Requires that the block is known
         uint256 _endHeight = _findHeight(_oldEnd.merkleRoot());
-        RelayLib.checkEpochEndBlock(_oldPeriodEndHeader, _endHeight, currTarget);
+        RelayLib.checkEpochEndBlock(_oldPeriodEndHeader, _endHeight, params.currTarget);
     }
 
     /// @notice Verify the header and give the collateral back to the Relayer
@@ -870,7 +848,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
         */
 
         require(
-            _height + finalizationParameter > lastVerifiedHeight, 
+            _height + params.finalizationParameter > lastVerifiedHeight, 
             "Relay: old block"
         );
 
@@ -971,7 +949,7 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Returns true if proof time is passed
     function _proofTimePassed(uint _startProofTime) internal view returns (bool) {
-        return (block.timestamp - _startProofTime >= proofTime) ? true : false;
+        return (block.timestamp - _startProofTime >= params.proofTime) ? true : false;
     }
 
 
@@ -980,8 +958,8 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
     ///      Blocks on higher heights will exist until their height gets pruned.
     function _pruneChain() internal {
         // Make sure that we have at least finalizationParameter blocks on relay
-        if ((lastVerifiedHeight - initialHeight) >= finalizationParameter){
-            uint _idx = finalizationParameter;
+        if ((lastVerifiedHeight - initialHeight) >= params.finalizationParameter){
+            uint _idx = params.finalizationParameter;
             uint currentHeight = lastVerifiedHeight;
             uint stableIdx = 0;
 
@@ -995,10 +973,10 @@ contract Relay is IRelay, Ownable, ReentrancyGuard, Pausable {
 
             // if the finalized block is the start of the epoch, save its timestamp and target
             if (currentHeight % BitcoinHelper.RETARGET_PERIOD_BLOCKS == 0) {
-                epochStartTimestamp = nonFinalizedEpochStartTimestamp[stableIdx];
-                delete nonFinalizedEpochStartTimestamp; // TODO: check if this works correctly
-                currTarget = nonFinalizedCurrTarget[stableIdx];
-                delete nonFinalizedCurrTarget; // TODO: check if this works correctly
+                epochStartTimestamp = params.nonFinalizedEpochStartTimestamp[stableIdx];
+                delete params.nonFinalizedEpochStartTimestamp; // TODO: check if this works correctly
+                params.currTarget = params.nonFinalizedCurrTarget[stableIdx];
+                delete params.nonFinalizedCurrTarget; // TODO: check if this works correctly
             }
 
             // Keep the finalized Merkle root and delete rest of roots
